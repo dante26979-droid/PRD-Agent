@@ -1,0 +1,17 @@
+{
+  "case_id": "case-002",
+  "title": "复用历史订单筛选方案",
+  "requirement": "新筛选入口尽量复用历史 PRD 中已有的时间筛选交互。",
+  "context": "历史资料可能包含交互约定，但没有指定文档。",
+  "tags": ["optional_investigation", "history"],
+  "repository_id": "demo-repo",
+  "resolved_commit_sha": "0000000000000000000000000000000000000000",
+  "expected_information_needs": [{"type": "OPTIONAL", "category": "history_prd", "reason": "历史资料可帮助保持一致"}],
+  "required_sources": [],
+  "expected_facts": [],
+  "expected_unknowns": ["历史方案是否仍有效"],
+  "expected_conflicts": [],
+  "required_prd_sections": ["requirement_summary", "business_rules", "open_questions"],
+  "expected_keywords": ["历史", "筛选"],
+  "clarification_questions": ["是否有指定历史 PRD"]
+}

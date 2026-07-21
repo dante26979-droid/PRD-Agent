@@ -1,0 +1,17 @@
+{
+  "case_id": "case-004",
+  "title": "货币字段类型变更",
+  "requirement": "订单货币字段从任意字符串收敛为 CNY 或 USD。",
+  "context": "需求同时涉及接口参数、数据库字段和下游展示。",
+  "tags": ["required_investigation", "cross_file"],
+  "repository_id": "demo-repo",
+  "resolved_commit_sha": "0000000000000000000000000000000000000000",
+  "expected_information_needs": [{"type": "REQUIRED", "category": "downstream_usage", "reason": "需要确认下游如何展示货币"}],
+  "required_sources": [{"kind": "source_file", "locator": "src/api/validators.py"}, {"kind": "source_file", "locator": "db/schema.sql"}],
+  "expected_facts": [],
+  "expected_unknowns": ["历史非法货币值的迁移方式"],
+  "expected_conflicts": [],
+  "required_prd_sections": ["requirement_summary", "scope_boundary", "business_rules", "acceptance_criteria"],
+  "expected_keywords": ["CNY", "USD"],
+  "clarification_questions": ["非法货币值是否需要迁移"]
+}

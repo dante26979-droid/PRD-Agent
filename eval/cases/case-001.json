@@ -1,0 +1,17 @@
+{
+  "case_id": "case-001",
+  "title": "订单列表增加筛选入口",
+  "requirement": "在订单列表增加按创建时间筛选的入口。",
+  "context": "这是一个不依赖当前代码事实的新增交互需求。",
+  "tags": ["no_investigation"],
+  "repository_id": "demo-repo",
+  "resolved_commit_sha": "0000000000000000000000000000000000000000",
+  "expected_information_needs": [{"type": "NOT_REQUIRED", "category": "validation_logic", "reason": "需求不依赖代码事实"}],
+  "required_sources": [],
+  "expected_facts": [],
+  "expected_unknowns": ["筛选时间精度"],
+  "expected_conflicts": [],
+  "required_prd_sections": ["requirement_summary", "scope_boundary", "acceptance_criteria", "open_questions"],
+  "expected_keywords": ["订单", "创建时间"],
+  "clarification_questions": ["筛选时间精度是什么"]
+}

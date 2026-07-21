@@ -1,0 +1,7 @@
+CREATE TABLE orders (
+    id BIGSERIAL PRIMARY KEY,
+    amount NUMERIC(12, 2) NOT NULL CHECK (amount > 0),
+    currency CHAR(3) NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);

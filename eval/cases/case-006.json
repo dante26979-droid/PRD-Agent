@@ -1,0 +1,17 @@
+{
+  "case_id": "case-006",
+  "title": "订单取消权限",
+  "requirement": "只有 operator 角色可以取消订单，finance 角色只能查看和退款。",
+  "context": "需求影响角色权限矩阵。",
+  "tags": ["required_investigation", "permission"],
+  "repository_id": "demo-repo",
+  "resolved_commit_sha": "0000000000000000000000000000000000000000",
+  "expected_information_needs": [{"type": "REQUIRED", "category": "permission_rule", "reason": "必须确认角色权限"}],
+  "required_sources": [{"kind": "source_file", "locator": "src/auth/permissions.py"}],
+  "expected_facts": [{"fact_id": "fact-006", "statement": "operator 拥有 order:cancel", "source_locators": ["src/auth/permissions.py"]}],
+  "expected_unknowns": ["无权限时的错误码"],
+  "expected_conflicts": [],
+  "required_prd_sections": ["requirement_summary", "business_rules", "acceptance_criteria", "exceptions", "open_questions"],
+  "expected_keywords": ["operator", "finance", "权限"],
+  "clarification_questions": ["无权限时返回哪个错误码"]
+}

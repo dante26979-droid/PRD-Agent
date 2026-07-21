@@ -1,0 +1,17 @@
+{
+  "case_id": "case-005",
+  "title": "订单状态增加取消规则",
+  "requirement": "待支付订单可以取消，已支付订单不能直接取消。",
+  "context": "需求影响订单状态转换和对应的异常处理。",
+  "tags": ["required_investigation", "state_transition"],
+  "repository_id": "demo-repo",
+  "resolved_commit_sha": "0000000000000000000000000000000000000000",
+  "expected_information_needs": [{"type": "REQUIRED", "category": "state_transition", "reason": "需要确认允许的状态事件"}],
+  "required_sources": [{"kind": "source_file", "locator": "src/domain/order.py"}],
+  "expected_facts": [{"fact_id": "fact-005", "statement": "待支付订单可通过 cancel 进入 cancelled", "source_locators": ["src/domain/order.py"]}],
+  "expected_unknowns": ["取消是否需要记录原因"],
+  "expected_conflicts": [],
+  "required_prd_sections": ["requirement_summary", "business_rules", "flow", "acceptance_criteria", "exceptions"],
+  "expected_keywords": ["待支付", "取消"],
+  "clarification_questions": ["取消是否需要记录原因"]
+}

@@ -1,0 +1,17 @@
+{
+  "case_id": "case-010",
+  "title": "跨文件订单金额改造",
+  "requirement": "将订单金额校验、状态流转和测试同步改造成新的金额精度规则。",
+  "context": "需求横跨 API、领域状态、数据库和测试；如果调查预算不足必须保留未知项。",
+  "tags": ["required_investigation", "cross_file", "budget"],
+  "repository_id": "demo-repo",
+  "resolved_commit_sha": "0000000000000000000000000000000000000000",
+  "expected_information_needs": [{"type": "REQUIRED", "category": "cross_module_reference", "reason": "需要覆盖多个文件和测试"}],
+  "required_sources": [{"kind": "source_file", "locator": "src/api/validators.py"}, {"kind": "source_file", "locator": "src/domain/order.py"}, {"kind": "source_file", "locator": "tests/test_order.py"}],
+  "expected_facts": [],
+  "expected_unknowns": ["完整下游影响范围"],
+  "expected_conflicts": [],
+  "required_prd_sections": ["requirement_summary", "business_rules", "flow", "acceptance_criteria", "open_questions"],
+  "expected_keywords": ["金额", "测试", "未知"],
+  "clarification_questions": ["是否允许分阶段上线"]
+}

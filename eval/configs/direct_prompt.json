@@ -1,0 +1,8 @@
+{
+  "config_id": "direct-prompt-v1",
+  "prompt_version": "direct-prompt-v1",
+  "model_id": "stub-model",
+  "dataset_version": "eval-v1",
+  "trials_per_case": 3,
+  "timeout_seconds": 120
+}

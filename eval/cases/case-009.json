@@ -1,0 +1,17 @@
+{
+  "case_id": "case-009",
+  "title": "不存在的退款消费者",
+  "requirement": "订单支付成功后通知退款消费者更新对账状态。",
+  "context": "当前 Demo Repository 未必存在退款消费者，不能把空搜索结果当作不存在。",
+  "tags": ["unknown", "required_investigation"],
+  "repository_id": "demo-repo",
+  "resolved_commit_sha": "0000000000000000000000000000000000000000",
+  "expected_information_needs": [{"type": "REQUIRED", "category": "downstream_usage", "reason": "需要查找下游消费者"}],
+  "required_sources": [],
+  "expected_facts": [],
+  "expected_unknowns": ["是否存在外部退款消费者"],
+  "expected_conflicts": [],
+  "required_prd_sections": ["requirement_summary", "scope_boundary", "exceptions", "open_questions"],
+  "expected_keywords": ["退款", "待确认"],
+  "clarification_questions": ["是否有外部退款系统"]
+}

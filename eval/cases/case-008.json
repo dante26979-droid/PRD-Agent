@@ -1,0 +1,17 @@
+{
+  "case_id": "case-008",
+  "title": "历史资料与当前实现冲突",
+  "requirement": "按历史 PRD 将订单状态命名为 completed。",
+  "context": "当前代码可能使用 paid，历史资料与代码事实可能不一致。",
+  "tags": ["conflict", "required_investigation"],
+  "repository_id": "demo-repo",
+  "resolved_commit_sha": "0000000000000000000000000000000000000000",
+  "expected_information_needs": [{"type": "REQUIRED", "category": "source_conflict", "reason": "需要记录历史资料与代码的冲突"}],
+  "required_sources": [{"kind": "source_file", "locator": "src/domain/order.py"}],
+  "expected_facts": [],
+  "expected_unknowns": ["最终采用哪一种状态命名"],
+  "expected_conflicts": ["历史 PRD 使用 completed，当前代码使用 paid"],
+  "required_prd_sections": ["requirement_summary", "scope_boundary", "business_rules", "open_questions"],
+  "expected_keywords": ["冲突", "paid"],
+  "clarification_questions": ["最终采用哪种状态命名"]
+}

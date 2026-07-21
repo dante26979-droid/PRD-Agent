@@ -1,0 +1,17 @@
+{
+  "case_id": "case-007",
+  "title": "订单金额数据库约束",
+  "requirement": "数据库必须拒绝金额小于等于 0 的订单。",
+  "context": "这是一个需要核对数据库 Schema 的约束需求。",
+  "tags": ["required_investigation", "database"],
+  "repository_id": "demo-repo",
+  "resolved_commit_sha": "0000000000000000000000000000000000000000",
+  "expected_information_needs": [{"type": "REQUIRED", "category": "storage_schema", "reason": "必须确认数据库约束"}],
+  "required_sources": [{"kind": "source_file", "locator": "db/schema.sql"}],
+  "expected_facts": [{"fact_id": "fact-007", "statement": "amount 有大于 0 的 CHECK 约束", "source_locators": ["db/schema.sql"]}],
+  "expected_unknowns": [],
+  "expected_conflicts": [],
+  "required_prd_sections": ["requirement_summary", "business_rules", "acceptance_criteria"],
+  "expected_keywords": ["CHECK", "大于 0"],
+  "clarification_questions": []
+}
