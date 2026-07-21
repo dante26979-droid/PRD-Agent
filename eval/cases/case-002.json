@@ -5,7 +5,7 @@
   "context": "历史资料可能包含交互约定，但没有指定文档。",
   "tags": ["optional_investigation", "history"],
   "repository_id": "demo-repo",
-  "resolved_commit_sha": "0000000000000000000000000000000000000000",
+  "resolved_commit_sha": "9eb1f3b0d0b8cdd9aa0252e3a6c24d3e3a5f4233",
   "expected_information_needs": [{"type": "OPTIONAL", "category": "history_prd", "reason": "历史资料可帮助保持一致"}],
   "required_sources": [],
   "expected_facts": [],

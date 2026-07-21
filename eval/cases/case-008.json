@@ -5,7 +5,7 @@
   "context": "当前代码可能使用 paid，历史资料与代码事实可能不一致。",
   "tags": ["conflict", "required_investigation"],
   "repository_id": "demo-repo",
-  "resolved_commit_sha": "0000000000000000000000000000000000000000",
+  "resolved_commit_sha": "9eb1f3b0d0b8cdd9aa0252e3a6c24d3e3a5f4233",
   "expected_information_needs": [{"type": "REQUIRED", "category": "source_conflict", "reason": "需要记录历史资料与代码的冲突"}],
   "required_sources": [{"kind": "source_file", "locator": "src/domain/order.py"}],
   "expected_facts": [],

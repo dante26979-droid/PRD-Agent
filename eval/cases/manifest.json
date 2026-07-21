@@ -1,7 +1,7 @@
 {
   "dataset_version": "eval-v1",
   "repository_id": "demo-repo",
-  "resolved_commit_sha": "0000000000000000000000000000000000000000",
+  "resolved_commit_sha": "9eb1f3b0d0b8cdd9aa0252e3a6c24d3e3a5f4233",
   "cases": [
     "case-001.json",
     "case-002.json",

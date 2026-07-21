@@ -5,7 +5,7 @@
   "context": "这是一个不依赖当前代码事实的新增交互需求。",
   "tags": ["no_investigation"],
   "repository_id": "demo-repo",
-  "resolved_commit_sha": "0000000000000000000000000000000000000000",
+  "resolved_commit_sha": "9eb1f3b0d0b8cdd9aa0252e3a6c24d3e3a5f4233",
   "expected_information_needs": [{"type": "NOT_REQUIRED", "category": "validation_logic", "reason": "需求不依赖代码事实"}],
   "required_sources": [],
   "expected_facts": [],

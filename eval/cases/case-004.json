@@ -5,7 +5,7 @@
   "context": "需求同时涉及接口参数、数据库字段和下游展示。",
   "tags": ["required_investigation", "cross_file"],
   "repository_id": "demo-repo",
-  "resolved_commit_sha": "0000000000000000000000000000000000000000",
+  "resolved_commit_sha": "9eb1f3b0d0b8cdd9aa0252e3a6c24d3e3a5f4233",
   "expected_information_needs": [{"type": "REQUIRED", "category": "downstream_usage", "reason": "需要确认下游如何展示货币"}],
   "required_sources": [{"kind": "source_file", "locator": "src/api/validators.py"}, {"kind": "source_file", "locator": "db/schema.sql"}],
   "expected_facts": [],

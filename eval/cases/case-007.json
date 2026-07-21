@@ -5,7 +5,7 @@
   "context": "这是一个需要核对数据库 Schema 的约束需求。",
   "tags": ["required_investigation", "database"],
   "repository_id": "demo-repo",
-  "resolved_commit_sha": "0000000000000000000000000000000000000000",
+  "resolved_commit_sha": "9eb1f3b0d0b8cdd9aa0252e3a6c24d3e3a5f4233",
   "expected_information_needs": [{"type": "REQUIRED", "category": "storage_schema", "reason": "必须确认数据库约束"}],
   "required_sources": [{"kind": "source_file", "locator": "db/schema.sql"}],
   "expected_facts": [{"fact_id": "fact-007", "statement": "amount 有大于 0 的 CHECK 约束", "source_locators": ["db/schema.sql"]}],

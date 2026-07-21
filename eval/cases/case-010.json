@@ -5,7 +5,7 @@
   "context": "需求横跨 API、领域状态、数据库和测试；如果调查预算不足必须保留未知项。",
   "tags": ["required_investigation", "cross_file", "budget"],
   "repository_id": "demo-repo",
-  "resolved_commit_sha": "0000000000000000000000000000000000000000",
+  "resolved_commit_sha": "9eb1f3b0d0b8cdd9aa0252e3a6c24d3e3a5f4233",
   "expected_information_needs": [{"type": "REQUIRED", "category": "cross_module_reference", "reason": "需要覆盖多个文件和测试"}],
   "required_sources": [{"kind": "source_file", "locator": "src/api/validators.py"}, {"kind": "source_file", "locator": "src/domain/order.py"}, {"kind": "source_file", "locator": "tests/test_order.py"}],
   "expected_facts": [],

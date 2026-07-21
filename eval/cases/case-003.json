@@ -5,7 +5,7 @@
   "context": "需求会影响当前请求校验和数据库约束。",
   "tags": ["required_investigation", "validation", "database"],
   "repository_id": "demo-repo",
-  "resolved_commit_sha": "0000000000000000000000000000000000000000",
+  "resolved_commit_sha": "9eb1f3b0d0b8cdd9aa0252e3a6c24d3e3a5f4233",
   "expected_information_needs": [{"type": "REQUIRED", "category": "validation_logic", "reason": "必须确认当前校验行为"}, {"type": "REQUIRED", "category": "storage_schema", "reason": "必须确认金额字段约束"}],
   "required_sources": [{"kind": "source_file", "locator": "src/api/validators.py"}, {"kind": "source_file", "locator": "db/schema.sql"}],
   "expected_facts": [{"fact_id": "fact-003", "statement": "金额必须大于 0", "source_locators": ["src/api/validators.py", "db/schema.sql"]}],
