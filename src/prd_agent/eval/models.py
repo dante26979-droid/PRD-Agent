@@ -9,22 +9,13 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
-import hashlib
-import json
 from typing import Any, Mapping
 
 
 NEED_TYPES = frozenset({"OPTIONAL", "REQUIRED", "NOT_REQUIRED"})
 
 
-def canonical_json(value: Any) -> str:
-    """Serialize a value deterministically for hashes and idempotency keys."""
-
-    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-
-
-def sha256_json(value: Any) -> str:
-    return "sha256:" + hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
+from prd_agent.hashing import canonical_json, sha256_json
 
 
 @dataclass(frozen=True)
@@ -150,6 +141,7 @@ class BaselineConfig:
     dataset_version: str
     trials_per_case: int = 3
     timeout_seconds: float = 120.0
+    options: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.config_id or not self.prompt_version or not self.model_id:
@@ -183,6 +175,7 @@ class BaselineRun:
     status: str
     output: str | None = None
     error: str | None = None
+    metadata: Mapping[str, Any] = field(default_factory=dict)
 
     def as_dict(self) -> dict[str, Any]:
         value = asdict(self)

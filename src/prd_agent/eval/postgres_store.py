@@ -41,7 +41,7 @@ class PostgresRunStore:
                 SELECT eval_run_id, case_id, config_id, trial_no, model_id,
                        prompt_version, dataset_version, repository_commit,
                        input_hash, output_hash, started_at, duration_ms,
-                       token_usage, status, output, error
+                       token_usage, metadata, status, output, error
                   FROM eval_run WHERE eval_run_id = %s
                 """,
                 (eval_run_id,),
@@ -62,8 +62,8 @@ class PostgresRunStore:
                     eval_run_id, case_id, config_id, trial_no, model_id,
                     prompt_version, dataset_version, repository_commit,
                     input_hash, output_hash, started_at, duration_ms,
-                    token_usage, status, output, error
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    token_usage, metadata, status, output, error
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
                 (
                     run.eval_run_id,
@@ -79,6 +79,7 @@ class PostgresRunStore:
                     run.started_at,
                     run.duration_ms,
                     json.dumps(dict(run.token_usage), ensure_ascii=False),
+                    json.dumps(dict(run.metadata), ensure_ascii=False),
                     run.status,
                     run.output,
                     run.error,
@@ -93,7 +94,7 @@ class PostgresRunStore:
                 SELECT eval_run_id, case_id, config_id, trial_no, model_id,
                        prompt_version, dataset_version, repository_commit,
                        input_hash, output_hash, started_at, duration_ms,
-                       token_usage, status, output, error
+                       token_usage, metadata, status, output, error
                   FROM eval_run ORDER BY started_at, eval_run_id
                 """
             )
@@ -105,6 +106,9 @@ class PostgresRunStore:
         token_usage = row[12]
         if isinstance(token_usage, str):
             token_usage = json.loads(token_usage)
+        metadata = row[13]
+        if isinstance(metadata, str):
+            metadata = json.loads(metadata)
         return BaselineRun(
             eval_run_id=row[0],
             case_id=row[1],
@@ -119,7 +123,8 @@ class PostgresRunStore:
             started_at=row[10],
             duration_ms=row[11],
             token_usage=token_usage or {},
-            status=row[13],
-            output=row[14],
-            error=row[15],
+            metadata=metadata or {},
+            status=row[14],
+            output=row[15],
+            error=row[16],
         )

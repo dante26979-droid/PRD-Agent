@@ -1,0 +1,8 @@
+.git
+.pytest_cache
+venv
+web/node_modules
+web/.next
+**/__pycache__
+*.pyc
+infra/production/secrets

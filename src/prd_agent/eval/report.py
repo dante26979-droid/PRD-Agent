@@ -45,7 +45,7 @@ class EvaluationReport:
 
     def to_markdown(self) -> str:
         lines = [
-            "# M0 Direct Prompt Baseline Report",
+            "# M0 PRD Agent Evaluation Report",
             "",
             f"- Dataset: `{self.dataset_version}`",
             f"- Repository: `{self.repository_id}`",
@@ -104,6 +104,17 @@ def build_report(
     for run in completed:
         case = next(case for case in dataset.cases if case.case_id == run.case_id)
         metric_results.extend(evaluate_case(case, run.output or ""))
+        for name in (
+            "coverage_completion_rate",
+            "tool_call_count",
+            "duplicate_action_rate",
+            "replan_count",
+            "no_progress_termination_rate",
+        ):
+            if name in run.metadata:
+                metric_results.append(
+                    MetricResult(name=name, value=float(run.metadata[name]))
+                )
     failures = tuple(
         {
             "eval_run_id": run.eval_run_id,

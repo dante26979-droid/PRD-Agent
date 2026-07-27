@@ -45,7 +45,7 @@ class BaselineRunner:
         config: BaselineConfig,
         model: ModelAdapter,
         store: RunStore,
-        baseline: DirectPromptBaseline | None = None,
+        baseline=None,
     ) -> None:
         if config.dataset_version != dataset.dataset_version:
             raise ValueError("baseline config dataset_version does not match dataset")

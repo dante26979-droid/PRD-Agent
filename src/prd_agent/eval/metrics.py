@@ -121,6 +121,88 @@ def evaluate_case(case: EvalCase, output: str) -> list[MetricResult]:
             name="unsupported_claim_rate",
             value=None,
             status="not_applicable",
-            details={"reason": "Direct Prompt baseline has no Evidence or Grounding"},
+            details={"reason": "M0 Step 1/2 configurations have no Evidence or Grounding"},
+        ),
+    ]
+
+
+def evaluate_grounding(result) -> list[MetricResult]:
+    """Measure operational Grounding outcomes without using hidden ground truth."""
+
+    from prd_agent.grounding.models import ClaimKind, GroundingVerdict
+
+    deterministic = [
+        item
+        for item in result.claim_assessments
+        if item.kind == ClaimKind.CURRENT_STATE
+    ]
+    unsupported = [
+        item
+        for item in deterministic
+        if item.verdict != GroundingVerdict.SUPPORTED
+    ]
+    if deterministic:
+        unsupported_metric = MetricResult(
+            name="unsupported_claim_rate",
+            value=_ratio(len(unsupported), len(deterministic)),
+            details={
+                "unsupported_claim_ids": [item.claim_id for item in unsupported],
+                "deterministic_claim_count": len(deterministic),
+            },
+        )
+    else:
+        unsupported_metric = MetricResult(
+            name="unsupported_claim_rate",
+            value=None,
+            status="not_applicable",
+            details={"reason": "grounding result has no current-state claims"},
+        )
+
+    facts = list(result.fact_assessments)
+    supported_facts = [
+        item for item in facts if item.verdict == GroundingVerdict.SUPPORTED
+    ]
+    verified_fact_accuracy = MetricResult(
+        name="verified_fact_accuracy",
+        value=_ratio(len(supported_facts), len(facts)) if facts else None,
+        status="measured" if facts else "not_applicable",
+        details={
+            "mode": "operational_support_rate",
+            "supported": len(supported_facts),
+            "assessed": len(facts),
+        },
+    )
+    selected_evidence = sum(len(item.evidence_ids) for item in facts)
+    supporting_evidence = len(
+        {
+            reference.evidence_id
+            for reference in result.references
+        }
+    )
+    evidence_precision = MetricResult(
+        name="evidence_precision",
+        value=(
+            _ratio(supporting_evidence, selected_evidence)
+            if selected_evidence
+            else None
+        ),
+        status="measured" if selected_evidence else "not_applicable",
+        details={
+            "supporting": supporting_evidence,
+            "selected": selected_evidence,
+        },
+    )
+    return [
+        unsupported_metric,
+        verified_fact_accuracy,
+        evidence_precision,
+        MetricResult(
+            name="grounding_retry_rate",
+            value=1.0 if result.retry_count else 0.0,
+            details={"retry_count": result.retry_count},
+        ),
+        MetricResult(
+            name="grounding_first_pass_pass_rate",
+            value=1.0 if result.confirmable and result.retry_count == 0 else 0.0,
         ),
     ]

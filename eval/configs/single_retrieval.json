@@ -1,0 +1,8 @@
+{
+  "config_id": "single-retrieval-v1",
+  "prompt_version": "single-retrieval-v1",
+  "model_id": "heuristic-workflow-model",
+  "dataset_version": "eval-v1",
+  "trials_per_case": 3,
+  "timeout_seconds": 120
+}

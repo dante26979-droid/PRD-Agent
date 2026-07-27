@@ -1,0 +1,14 @@
+{
+  "config_id": "bounded-investigation-v1",
+  "prompt_version": "information-need-v1+action-selector-v1",
+  "model_id": "scripted-investigation-model",
+  "dataset_version": "eval-v1",
+  "trials_per_case": 3,
+  "timeout_seconds": 120,
+  "budget": {
+    "max_iterations": 5,
+    "max_tool_calls": 12,
+    "max_replans": 1,
+    "no_progress_limit": 2
+  }
+}
