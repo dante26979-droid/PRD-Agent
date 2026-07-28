@@ -8,6 +8,15 @@ dynamic confirmation units, confirmed-only context, immutable section/document v
 Document Quality gates, user-approved revision and explicit finalization. Step 7 adds an
 owner-scoped FastAPI, resumable SSE stream and a responsive Next.js PRD workbench.
 
+The deployment target is a bounded multi-user service on 2 vCPU / 2GB RAM /
+40GB SSD. Feishu owns published PRD bodies, GitHub owns repository content,
+PostgreSQL owns orchestration and retrieval metadata, and production calls a
+remote LLM only. The migration and acceptance contract is documented in
+`docs/superpowers/plans/2026-07-28-feishu-github-rag-queue-architecture-design.md`.
+The active master design is
+`docs/superpowers/specs/2026-07-21-prd-agent-v1.1-design.md`; the V1.0 design is
+inactive and retained only as history.
+
 ## Local setup
 
 ```bash
@@ -17,6 +26,12 @@ npm --prefix web install
 docker compose -f infra/local/docker-compose.yml up -d
 export PRD_AGENT_DATABASE_DSN='postgresql://prd_agent:prd_agent_local_only@localhost:5432/prd_agent'
 ```
+
+To enable the real LLM workflow locally, create the ignored file
+`infra/production/secrets/deepseek_api_key` with only the DeepSeek API key,
+then copy the `PRD_AGENT_LLM_*` settings from `.env.example`. The deterministic
+offline model remains available only to local development, tests and evaluation;
+staging and production fail readiness without the remote model configuration.
 
 For a PostgreSQL volume created before Step 2, apply `infra/local/schema.sql` once; Docker's
 initialization directory only runs for a new volume.
@@ -49,16 +64,17 @@ Step 10 adds the production profile: OIDC principal mapping, per-request
 PostgreSQL pool connections, transactional Outbox/Inbox, worker leases with
 heartbeat and fencing, Celery JSON queue contracts, persisted cancellation,
 recovery reconciliation, OAuth/Secret/Webhook security boundaries, and
-production deployment manifests. PostgreSQL remains the business source of
-truth; Redis is used for broker and low-latency cancellation notification only.
+production deployment manifests. PostgreSQL remains the source of truth for the
+PRD Agent control plane; Feishu is the source of truth for published PRD bodies,
+GitHub is the source of truth for code, and Redis is used only for broker,
+wake-up, cancellation notification and bounded caches.
 
 ## Web workbench
 
 Start the API and Web app in separate terminals:
 
 ```bash
-PRD_AGENT_DATABASE_DSN="$PRD_AGENT_DATABASE_DSN" \
-  venv/bin/uvicorn prd_agent.api:create_app --factory \
+venv/bin/uvicorn --env-file .env prd_agent.api:create_app --factory \
   --host 127.0.0.1 --port 8000
 
 npm --prefix web run dev
@@ -68,6 +84,34 @@ Open `http://127.0.0.1:3000`. The Portfolio profile uses the fixed `local-user`
 principal, but every list, snapshot, command and event query still enforces `owner_id`.
 The UI supports task creation, clarification, outline/unit confirmation, quality revision,
 finalization, reopen, safe Markdown and event-cursor recovery.
+
+## Local Feishu Wiki integration
+
+Copy `.env.example` to `.env` and configure one existing Wiki Docx node. The
+application exchanges `PRD_AGENT_FEISHU_APP_ID` and
+`PRD_AGENT_FEISHU_APP_SECRET` for a cached tenant access token, resolves
+`PRD_AGENT_FEISHU_WIKI_NODE_TOKEN` to the underlying Docx identifier, and
+always reads or replaces that same node in place. The user-facing link remains
+the configured Wiki URL.
+
+The configured Feishu application must be published, have Docx/Wiki API
+permissions, and have edit access to the concrete Wiki space. Generate the two
+local application secrets independently:
+
+```bash
+openssl rand -hex 32
+openssl rand -hex 32
+```
+
+For an existing database, apply the integration tables before starting the
+API:
+
+```bash
+set -a
+source .env
+set +a
+venv/bin/python -m prd_agent.production.migrate --root infra/local
+```
 
 ## Production profile
 
@@ -82,14 +126,23 @@ PRD_AGENT_OIDC_ISSUER=https://...
 PRD_AGENT_OIDC_AUDIENCE=prd-agent-api
 PRD_AGENT_OIDC_JWKS_URL=https://.../.well-known/jwks.json
 PRD_AGENT_CORS_ORIGINS=https://your-web-origin.example
+PRD_AGENT_LLM_MODEL=deepseek-v4-pro
 ```
 
-`infra/production/docker-compose.yml` is a hardened reference topology for
-PostgreSQL, Redis, the expand migration job, API, Outbox publisher and
-reconciler. Create `infra/production/secrets/postgres_password.txt` and
+`infra/production/docker-compose.yml` currently provides the database, broker,
+migration, API, Outbox publisher and reconciler foundation. It is not yet the
+complete 2 vCPU / 2GB deployment topology: the real Agent Worker, Integration
+Worker, static Web, TLS/OIDC ingress, bounded Run Admission and Feishu-backed
+RAG migration remain deployment blockers. Create
+`infra/production/secrets/postgres_password.txt` and
 `infra/production/secrets/database_dsn.txt` outside version control before
 starting it. Containers run as non-root with dropped capabilities and a
 read-only root filesystem.
+
+The current transitional API runtime owns the bounded LLM workflow and mounts
+`infra/production/secrets/deepseek_api_key` as
+`/run/secrets/deepseek_api_key`. The target production topology moves this
+secret and all model calls to the single Agent Worker.
 
 Operational commands:
 

@@ -8,6 +8,7 @@ version = "0.1.0"
 description = "Grounded, resumable PRD Agent with bounded investigation and complete workflow"
 requires-python = ">=3.11"
 dependencies = [
+    "httpx>=0.28,<1",
     "pydantic>=2.10,<3",
     "PyYAML>=6,<7",
     "sqlglot>=25,<30",
@@ -16,6 +17,7 @@ dependencies = [
 [project.optional-dependencies]
 postgres = ["psycopg[binary]>=3.2,<4"]
 api = [
+    "cryptography>=44,<50",
     "fastapi>=0.115,<1",
     "uvicorn[standard]>=0.34,<1",
 ]
@@ -31,7 +33,6 @@ production = [
     "redis>=6.2,<6.5",
 ]
 dev = [
-    "httpx>=0.28,<1",
     "pytest>=8,<9",
 ]
 
@@ -49,3 +50,6 @@ where = ["src"]
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
+markers = [
+    "live_llm: opt-in tests that call the configured external LLM API",
+]

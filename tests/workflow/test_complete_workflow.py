@@ -351,6 +351,60 @@ class CompleteWorkflowTests(unittest.TestCase):
         self.assertIn("## 验收标准", review.markdown)
         self.assertNotIn("模型擅自改名", review.markdown)
 
+    def test_multi_node_unit_repairs_missing_structured_sections(self) -> None:
+        outline = two_unit_outline()
+        outline["units"] = [
+            {
+                "key": "unit-combined",
+                "title": "规则与验收",
+                "node_keys": ["rules", "acceptance"],
+                "depends_on_unit_keys": [],
+            }
+        ]
+        model = ScriptedModel(
+            {
+                "extract_requirement_brief": [sufficient_brief()],
+                "generate_outline": [outline],
+                "generate_confirmation_unit": [
+                    {"content": "### 规则与验收\n\n缺少逐节点结构。"},
+                    {
+                        "sections": [
+                            {
+                                "node_key": "rules",
+                                "title": "筛选规则",
+                                "content": "- 支持开始时间和结束时间筛选。",
+                            },
+                            {
+                                "node_key": "acceptance",
+                                "title": "验收标准",
+                                "content": "- 合法范围只返回范围内订单。",
+                            },
+                        ]
+                    },
+                ],
+            }
+        )
+        service = WorkflowService(InMemoryWorkflowRepository(), model)
+        outline_wait = service.start_task(
+            StartTask("订单列表增加创建时间筛选", "repair-multi-start")
+        )
+
+        unit_wait = service.confirm_outline(
+            ConfirmOutline(
+                outline_wait.task.task_id,
+                outline_version=1,
+                expected_task_version=outline_wait.task.version,
+                idempotency_key="repair-multi-confirm-outline",
+            )
+        )
+
+        self.assertEqual(model.calls["generate_confirmation_unit"], 2)
+        self.assertEqual(len(unit_wait.current_outline.confirmation_units), 1)
+        self.assertEqual(
+            len(unit_wait.current_outline.confirmation_units[0].section_drafts),
+            2,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

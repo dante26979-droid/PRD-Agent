@@ -1,9 +1,16 @@
 # M0 Agent Core 第八步设计方案：历史 PRD 检索与可评测 RAG
 
-> 文档状态：核心数据与 Grounding 切片已实现；Workflow/Web/Eval 待完成  
+> 生效状态：**兼容启用（ACTIVE-COMPATIBLE）**
+> 实施状态：固定Corpus和Grounding切片已实现；生产RAG路径以上位设计为准
 > 设计日期：2026-07-27  
 > 对应总设计：V1.1 分阶段交付“阶段 7：历史 PRD 与 RAG”  
 > 前置审核：`docs/architecture/2026-07-27-current-repository-implementation-audit.md`
+
+> 2026-07-28 目标架构更新：本设计的固定离线Corpus、Keyword Baseline和
+> Grounding合同继续作为兼容与评测基线；生产数据路径由
+> `2026-07-28-feishu-github-rag-queue-architecture-design.md`替代为
+> “PostgreSQL轻量目录定位 → 飞书读取最新原文 → 内存分块/重排”。现有
+> `markdown/content`列仅用于迁移兼容，不再作为新生产数据的长期写入目标。
 
 ## 0. 设计复核与实现记录
 

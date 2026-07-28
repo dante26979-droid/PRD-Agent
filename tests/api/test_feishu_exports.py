@@ -172,3 +172,45 @@ def test_export_intent_cannot_be_executed_through_a_different_task_endpoint():
 
     assert response.status_code == 404
     assert gateway.created == []
+
+
+def test_default_local_configuration_enables_feishu_export_preview(monkeypatch):
+    monkeypatch.setenv("PRD_AGENT_FEISHU_APP_ID", "cli_test")
+    monkeypatch.setenv("PRD_AGENT_FEISHU_APP_SECRET", "test-app-secret")
+    monkeypatch.setenv(
+        "PRD_AGENT_FEISHU_DOCUMENT_HOST",
+        "example.feishu.cn",
+    )
+    monkeypatch.setenv("PRD_AGENT_FEISHU_WIKI_NODE_TOKEN", "wiki-node-1")
+    monkeypatch.setenv(
+        "PRD_AGENT_EXPORT_CONFIRMATION_SECRET",
+        "test-confirmation-secret",
+    )
+    monkeypatch.setenv(
+        "PRD_AGENT_EXTERNAL_ID_ENCRYPTION_KEY",
+        "test-encryption-secret",
+    )
+    repository = InMemoryWorkflowRepository()
+    workflow = WorkflowService(
+        repository,
+        HeuristicWorkflowModel(),
+        quality_service=DocumentQualityService(),
+    )
+    client = TestClient(
+        create_app(repository, workflow),
+        raise_server_exceptions=False,
+    )
+    task_id, detail = completed_task(client)
+
+    preview = post(
+        client,
+        f"/api/v1/tasks/{task_id}/exports/feishu/preview",
+        {
+            "mode": "CREATE",
+            "expected_task_version": detail["task"]["version"],
+        },
+        "preview-default-feishu",
+    )
+
+    assert preview.status_code == 200
+    assert preview.json()["title"]

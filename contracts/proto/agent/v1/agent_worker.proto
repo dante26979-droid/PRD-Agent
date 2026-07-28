@@ -1,0 +1,82 @@
+syntax = "proto3";
+
+package agent.v1;
+
+option go_package = "github.com/dante26979-droid/prd-agent/contracts/gen/go/agent/v1;agentv1";
+
+import "agent/v1/agent_execution.proto";
+
+// AgentWorkerService is the Go -> Python execution contract. Python owns the
+// model/tool loop; Go remains the owner of all durable run state.
+service AgentWorkerService {
+	 rpc ExecuteRun(ExecuteRunRequest) returns (stream ExecuteRunResponse);
+	 rpc CancelRun(CancelRunRequest) returns (CancelRunResponse);
+	 rpc Health(HealthRequest) returns (HealthResponse);
+}
+
+message ExecuteRunRequest {
+	RequestMeta meta = 1;
+	string dispatch_id = 2;
+	string run_id = 3;
+	LeaseContext lease = 4;
+	AgentRunInput input = 5;
+	string worker_id = 6;
+}
+
+message ModelAttemptEvent {
+	string attempt_key = 1;
+	string operation = 2;
+	string prompt_version = 3;
+	string provider = 4;
+	string request_hash = 5;
+	string status = 6;
+	string response_metadata_json = 7;
+	string token_usage_json = 8;
+	string error_category = 9;
+}
+
+message ExecuteRunResponse {
+	string dispatch_id = 1;
+	string run_id = 2;
+	int64 event_sequence = 3;
+	string event_id = 4;
+	string event_type = 5;
+	ModelAttemptEvent model_attempt = 6;
+	repeated EvidenceItem evidence_items = 7;
+	int64 checkpoint_sequence = 8;
+	bytes checkpoint = 9;
+	string draft_key = 10;
+	int64 expected_task_version = 11;
+	bytes draft_patch = 12;
+	string error_category = 13;
+	bool retryable = 14;
+	string result_type = 15;
+	string occurred_at = 16;
+	string contract_version = 17;
+	string correlation_id = 18;
+}
+
+message CancelRunRequest {
+	RequestMeta meta = 1;
+	string dispatch_id = 2;
+	string run_id = 3;
+	string worker_id = 4;
+}
+
+message CancelRunResponse {
+	bool accepted = 1;
+}
+
+message HealthRequest {
+	RequestMeta meta = 1;
+	string worker_id = 2;
+}
+
+message HealthResponse {
+	string worker_id = 1;
+	string status = 2;
+	int32 active_runs = 3;
+	int32 max_inflight = 4;
+	bool model_ready = 5;
+	bool capability_ready = 6;
+}

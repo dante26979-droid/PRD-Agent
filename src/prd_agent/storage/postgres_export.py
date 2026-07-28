@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime
+
 from prd_agent.export.models import (
     ExportIntent,
     ExportRun,
@@ -388,6 +390,90 @@ class PostgresExportStore:
                 (intent.consumed_at, intent.intent_id, intent.owner_id),
             )
         self.connection.commit()
+
+    def claim_intent(
+        self,
+        intent_id: str,
+        owner_id: str,
+        claim_id: str,
+        *,
+        now: datetime,
+        claim_expires_at: datetime,
+    ) -> bool:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE export_intents
+                   SET claimed_by = %s,
+                       claim_expires_at = %s
+                 WHERE intent_id = %s
+                   AND owner_id = %s
+                   AND consumed_at IS NULL
+                   AND (
+                       claimed_by IS NULL
+                       OR claimed_by = %s
+                       OR claim_expires_at <= %s
+                   )
+                """,
+                (
+                    claim_id,
+                    claim_expires_at,
+                    intent_id,
+                    owner_id,
+                    claim_id,
+                    now,
+                ),
+            )
+            claimed = cursor.rowcount == 1
+        self.connection.commit()
+        return claimed
+
+    def release_intent_claim(
+        self,
+        intent_id: str,
+        owner_id: str,
+        claim_id: str,
+    ) -> None:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE export_intents
+                   SET claimed_by = NULL,
+                       claim_expires_at = NULL
+                 WHERE intent_id = %s
+                   AND owner_id = %s
+                   AND claimed_by = %s
+                   AND consumed_at IS NULL
+                """,
+                (intent_id, owner_id, claim_id),
+            )
+        self.connection.commit()
+
+    def consume_claimed_intent(
+        self,
+        intent_id: str,
+        owner_id: str,
+        claim_id: str,
+        *,
+        consumed_at: datetime,
+    ) -> bool:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE export_intents
+                   SET consumed_at = %s,
+                       claimed_by = NULL,
+                       claim_expires_at = NULL
+                 WHERE intent_id = %s
+                   AND owner_id = %s
+                   AND claimed_by = %s
+                   AND consumed_at IS NULL
+                """,
+                (consumed_at, intent_id, owner_id, claim_id),
+            )
+            consumed = cursor.rowcount == 1
+        self.connection.commit()
+        return consumed
 
     def list_runs(self, task_id: str, owner_id: str) -> tuple[ExportRun, ...]:
         with self.connection.cursor() as cursor:

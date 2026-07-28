@@ -5,6 +5,7 @@ from typing import Any
 import uuid
 
 from prd_agent.hashing import sha256_json
+from prd_agent.model_api.errors import ModelApiError
 from prd_agent.tools.models import ToolAction, ToolStatus
 from prd_agent.tools.registry import action_signature
 
@@ -78,6 +79,27 @@ class InvestigationRunner:
             payload = self._selector_payload(investigation, gap)
             try:
                 proposal = self.selector.select(payload, replan=replan)
+                model_result = getattr(
+                    self.selector,
+                    "last_model_result",
+                    None,
+                )
+                if model_result is not None:
+                    self._step(
+                        investigation,
+                        "CALL_MODEL",
+                        "SUCCEEDED",
+                        "模型已返回结构化调查动作",
+                        {
+                            "model_id": model_result.model_id,
+                            "prompt_version": model_result.prompt_version,
+                            "raw_output_hash": model_result.raw_output_hash,
+                            "token_usage": dict(
+                                model_result.token_usage
+                            ),
+                            "finish_reason": model_result.finish_reason,
+                        },
+                    )
                 selection_tokens = int(getattr(self.selector, "last_token_usage", 0))
                 if selection_tokens:
                     investigation = self._save(
@@ -106,6 +128,22 @@ class InvestigationRunner:
                     purpose=proposal.purpose,
                 )
                 self.evidence_service.registry.validate(action)
+            except ModelApiError as exc:
+                self._step(
+                    investigation,
+                    "CALL_MODEL",
+                    "FAILED",
+                    "模型服务未能返回调查动作",
+                    {
+                        "error_code": exc.code,
+                        "retryable": exc.retryable,
+                    },
+                )
+                investigation = self._finish(
+                    investigation,
+                    StopReason.UNRECOVERABLE_ERROR,
+                )
+                raise
             except Exception:
                 failed_selection_tokens = int(
                     getattr(self.selector, "last_token_usage", 0)
@@ -330,6 +368,7 @@ class InvestigationRunner:
                 }
                 for step in prior_steps[-10:]
             ],
+            "prior_tool_results": self._prior_tool_results(prior_steps),
             "remaining_budget": {
                 "iterations": investigation.budget.max_iterations
                 - investigation.iteration_count,
@@ -340,6 +379,45 @@ class InvestigationRunner:
                 "tokens": investigation.budget.token_budget - investigation.token_usage,
             },
         }
+
+    def _prior_tool_results(self, prior_steps):
+        values = []
+        for step in prior_steps:
+            if step.step_type != "EXECUTE_TOOL":
+                continue
+            tool_call_id = step.output.get("tool_call_id")
+            if not isinstance(tool_call_id, str) or not tool_call_id:
+                continue
+            try:
+                execution = self.evidence_service.store.get_execution(
+                    tool_call_id
+                )
+            except (KeyError, TypeError, ValueError):
+                continue
+            values.append(
+                {
+                    "iteration": step.iteration,
+                    "tool_id": execution.tool_call.tool_id,
+                    "status": execution.tool_result.status.value,
+                    "public_summary": execution.tool_result.public_summary,
+                    "evidence_ids": [
+                        item.evidence_id
+                        for item in execution.bundle.evidence
+                    ],
+                    "fact_ids": [
+                        item.fact_id for item in execution.bundle.facts
+                    ],
+                    "unknown_ids": [
+                        item.unknown_id
+                        for item in execution.bundle.unknowns
+                    ],
+                    "conflict_ids": [
+                        item.conflict_id
+                        for item in execution.bundle.conflicts
+                    ],
+                }
+            )
+        return values[-5:]
 
     def _result(self, investigation: Investigation) -> InvestigationResult:
         reason = investigation.stop_reason or StopReason.UNRECOVERABLE_ERROR

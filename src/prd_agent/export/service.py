@@ -271,6 +271,34 @@ class ExportApplicationService:
                 return concurrent_replay
         else:
             self.store.save_run(run)
+        claim_now = self.now()
+        if not self.store.claim_intent(
+            intent.intent_id,
+            owner_id,
+            run.export_run_id,
+            now=claim_now,
+            claim_expires_at=claim_now
+            + timedelta(seconds=self.intent_ttl_seconds),
+        ):
+            run = run.model_copy(
+                update={
+                    "status": ExportRunStatus.FAILED,
+                    "error_code": (
+                        IntegrationErrorCode.CONFIRMATION_REQUIRED.value
+                    ),
+                    "completed_at": self.now(),
+                }
+            )
+            self.store.save_replay(
+                owner_id,
+                idempotency_key,
+                input_hash,
+                run,
+            )
+            raise IntegrationError(
+                IntegrationErrorCode.CONFIRMATION_REQUIRED,
+                "export confirmation is already being used",
+            )
         self._emit(
             run.task_id,
             "ExportStarted",
@@ -280,6 +308,7 @@ class ExportApplicationService:
                 "document_version": run.document_version,
             },
         )
+        self._commit_event_boundary()
         try:
             if intent.mode == ExportMode.CREATE:
                 result = self.gateway.create_document(
@@ -341,9 +370,30 @@ class ExportApplicationService:
                     "completed_at": self.now(),
                 }
             )
-        self.store.consume_intent(
-            intent.model_copy(update={"consumed_at": self.now()})
-        )
+        if run.status == ExportRunStatus.FAILED and run.retryable:
+            self.store.release_intent_claim(
+                intent.intent_id,
+                owner_id,
+                run.export_run_id,
+            )
+        else:
+            consumed = self.store.consume_claimed_intent(
+                intent.intent_id,
+                owner_id,
+                run.export_run_id,
+                consumed_at=self.now(),
+            )
+            if not consumed:
+                run = run.model_copy(
+                    update={
+                        "status": ExportRunStatus.RESULT_UNKNOWN,
+                        "error_code": (
+                            IntegrationErrorCode.RESULT_UNKNOWN.value
+                        ),
+                        "retryable": False,
+                        "completed_at": self.now(),
+                    }
+                )
         self.store.save_replay(
             owner_id,
             idempotency_key,
@@ -407,7 +457,7 @@ class ExportApplicationService:
                 "task_version": intent.task_version,
                 "document_version": intent.document_version,
                 "content_hash": intent.content_hash,
-                "expires_at": intent.expires_at.isoformat(),
+                "expires_at": intent.expires_at.astimezone(timezone.utc).isoformat(),
             }
         ).encode("utf-8")
         return hmac.new(self.confirmation_secret, payload, hashlib.sha256).hexdigest()
@@ -423,3 +473,8 @@ class ExportApplicationService:
         append = getattr(self.event_sink, "append_event", None)
         if append is not None:
             append(task_id, event_type, payload)
+
+    def _commit_event_boundary(self) -> None:
+        commit = getattr(self.event_sink, "commit", None)
+        if commit is not None:
+            commit()

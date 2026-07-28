@@ -3,6 +3,8 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier, Event
 
+import pytest
+
 from prd_agent.export.models import (
     CreateIdempotencyCapability,
     ExportMode,
@@ -297,6 +299,124 @@ def test_concurrent_replay_reserves_one_logical_create_before_provider_call():
     assert concurrent.status == "RUNNING"
     assert first.status == "SUCCEEDED"
     assert len(gateway.created) == 1
+
+
+def test_concurrent_different_keys_cannot_consume_the_same_confirmation_twice():
+    source = FakeDocumentSource()
+
+    class SingleCallGateway(FakeFeishuGateway):
+        def __init__(self):
+            super().__init__()
+            self.started = Event()
+            self.release = Event()
+
+        def create_document(self, document, *, idempotency_key):
+            if self.created:
+                raise AssertionError("confirmation triggered a duplicate write")
+            self.created.append((document, idempotency_key))
+            self.started.set()
+            assert self.release.wait(timeout=2)
+            return ProviderDocumentResult(
+                external_id="feishu-doc-1",
+                safe_url="https://example.feishu.cn/docx/feishu-doc-1",
+                title=document.title,
+                provider_revision="revision-1",
+            )
+
+    gateway = SingleCallGateway()
+    service = ExportApplicationService(
+        source,
+        InMemoryExportStore(),
+        gateway,
+        confirmation_secret=b"test-confirmation-secret",
+    )
+    preview = service.preview(
+        task_id="task-1",
+        owner_id="local-user",
+        mode=ExportMode.CREATE,
+        expected_task_version=7,
+    )
+    common = {
+        "intent_id": preview.intent_id,
+        "confirmation_token": preview.confirmation_token,
+        "owner_id": "local-user",
+        "expected_task_version": 7,
+    }
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first_future = executor.submit(
+            service.execute,
+            **common,
+            idempotency_key="first-command",
+        )
+        assert gateway.started.wait(timeout=2)
+        try:
+            with pytest.raises(IntegrationError) as captured:
+                service.execute(
+                    **common,
+                    idempotency_key="different-command",
+                )
+            assert captured.value.code == IntegrationErrorCode.CONFIRMATION_REQUIRED
+        finally:
+            gateway.release.set()
+        first = first_future.result(timeout=2)
+
+    assert first.status == "SUCCEEDED"
+    assert len(gateway.created) == 1
+
+
+def test_retryable_provider_failure_releases_confirmation_for_a_safe_retry():
+    source = FakeDocumentSource()
+
+    class FailOnceGateway(FakeFeishuGateway):
+        def create_document(self, document, *, idempotency_key):
+            self.created.append((document, idempotency_key))
+            if len(self.created) == 1:
+                raise IntegrationError(
+                    IntegrationErrorCode.RATE_LIMITED,
+                    "provider asked the client to retry",
+                    retryable=True,
+                )
+            return ProviderDocumentResult(
+                external_id="feishu-doc-1",
+                safe_url="https://example.feishu.cn/docx/feishu-doc-1",
+                title=document.title,
+                provider_revision="revision-1",
+            )
+
+    gateway = FailOnceGateway()
+    service = ExportApplicationService(
+        source,
+        InMemoryExportStore(),
+        gateway,
+        confirmation_secret=b"test-confirmation-secret",
+    )
+    preview = service.preview(
+        task_id="task-1",
+        owner_id="local-user",
+        mode=ExportMode.CREATE,
+        expected_task_version=7,
+    )
+    common = {
+        "intent_id": preview.intent_id,
+        "confirmation_token": preview.confirmation_token,
+        "owner_id": "local-user",
+        "expected_task_version": 7,
+    }
+
+    failed = service.execute(
+        **common,
+        idempotency_key="rate-limited-attempt",
+    )
+    retried = service.execute(
+        **common,
+        idempotency_key="safe-retry",
+    )
+
+    assert failed.status == "FAILED"
+    assert failed.retryable is True
+    assert retried.status == "SUCCEEDED"
+    assert len(gateway.created) == 2
 
 
 def test_preview_idempotency_replays_the_same_single_use_intent():

@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 from copy import deepcopy
-from threading import RLock
+from threading import Lock, RLock
 import uuid
 
 from prd_agent.domain.entities import (
@@ -34,12 +35,21 @@ class InMemoryWorkflowRepository:
         self.quality_results: dict[str, list] = {}
         self.grounding_results: dict[str, list] = {}
         self.idempotency: dict[tuple[str, str], IdempotencyRecord] = {}
+        self._idempotency_locks: dict[tuple[str, str], Lock] = {}
         self.events: dict[str, list[DomainEvent]] = {}
         self.checkpoints: dict[str, dict] = {}
         self._lock = RLock()
 
     def commit(self) -> None:
         """Match the PostgreSQL repository's unit-of-work boundary."""
+
+    @contextmanager
+    def idempotency_lock(self, actor_id: str, key: str):
+        identity = (actor_id, key)
+        with self._lock:
+            lock = self._idempotency_locks.setdefault(identity, Lock())
+        with lock:
+            yield
 
     def get_idempotency(self, actor_id: str, key: str) -> IdempotencyRecord | None:
         return deepcopy(self.idempotency.get((actor_id, key)))

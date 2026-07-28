@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 
 from prd_agent.api import create_app
 from prd_agent.domain.commands import StartTask
+from prd_agent.model_api.errors import ModelApiError
 from prd_agent.quality.service import DocumentQualityService
 from prd_agent.storage.memory import InMemoryWorkflowRepository
 from prd_agent.workflow.service import WorkflowService
@@ -35,6 +36,34 @@ def test_health_and_empty_task_list():
     assert response.status_code == 200
     assert response.json() == {"items": [], "next_cursor": None}
     assert response.headers["x-request-id"].startswith("req-")
+
+
+def test_model_provider_failure_is_a_redacted_retryable_503():
+    class FailingModel:
+        def complete(self, operation, payload, *, repair=False):
+            raise ModelApiError(
+                "transport_timeout",
+                retryable=True,
+            )
+
+    repository = InMemoryWorkflowRepository()
+    app = create_app(
+        repository,
+        WorkflowService(repository, FailingModel()),
+    )
+    client = TestClient(app, raise_server_exceptions=False)
+
+    response = post(
+        client,
+        "/api/v1/tasks/from-message",
+        {"message": "订单列表增加创建时间筛选"},
+        "model-provider-failure",
+    )
+
+    assert response.status_code == 503
+    assert response.json()["error_code"] == "MODEL_PROVIDER_ERROR"
+    assert response.json()["retryable"] is True
+    assert "transport_timeout" not in str(response.json())
 
 
 def test_complete_prd_through_http_commands():

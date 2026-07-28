@@ -1,0 +1,105 @@
+# Verification/cutover profile for the Go Control Plane. The existing Python
+# profile remains available until the Phase 5 contract and data gates pass.
+services:
+  go-migrate:
+    build:
+      context: ../..
+      dockerfile: backend-go/Dockerfile
+    entrypoint: ["/app/prd-agent-go-migrate"]
+    environment:
+      PRD_AGENT_DATABASE_DSN_FILE: /run/secrets/database_dsn
+    secrets:
+      - database_dsn
+    depends_on:
+      postgres:
+        condition: service_healthy
+    profiles: [go-control-plane]
+
+  go-api:
+    build:
+      context: ../..
+      dockerfile: backend-go/Dockerfile
+    environment:
+      PRD_AGENT_GO_HTTP_ADDRESS: :8080
+      PRD_AGENT_ENVIRONMENT: production
+      PRD_AGENT_GO_ALLOW_DEV_PRINCIPAL: "false"
+      PRD_AGENT_DATABASE_DSN_FILE: /run/secrets/database_dsn
+      PRD_AGENT_BROKER_URL: redis://redis:6379/0
+      PRD_AGENT_OIDC_ISSUER: ${PRD_AGENT_OIDC_ISSUER:?required}
+      PRD_AGENT_OIDC_AUDIENCE: ${PRD_AGENT_OIDC_AUDIENCE:?required}
+      PRD_AGENT_MAX_GLOBAL_RUNNABLE: ${PRD_AGENT_MAX_GLOBAL_RUNNABLE:-30}
+      PRD_AGENT_MAX_RUNNABLE_PER_OWNER: ${PRD_AGENT_MAX_RUNNABLE_PER_OWNER:-1}
+    secrets:
+      - database_dsn
+    depends_on:
+      go-migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    profiles: [go-control-plane]
+    ports:
+      - "8001:8080"
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,noexec,nosuid
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+  go-maintenance:
+    build:
+      context: ../..
+      dockerfile: backend-go/Dockerfile
+    entrypoint: ["/app/prd-agent-go-maintenance"]
+    environment:
+      PRD_AGENT_DATABASE_DSN_FILE: /run/secrets/database_dsn
+      PRD_AGENT_BROKER_URL: redis://redis:6379/0
+      PRD_AGENT_GO_AGENT_DISPATCH_MODE: ${PRD_AGENT_GO_AGENT_DISPATCH_MODE:-go_rpc_pool}
+      PRD_AGENT_GO_AGENT_RPC_WORKER_ENDPOINTS: python-agent:9100
+      PRD_AGENT_GO_AGENT_RPC_MAX_INFLIGHT_PER_WORKER: ${PRD_AGENT_GO_AGENT_RPC_MAX_INFLIGHT_PER_WORKER:-1}
+    secrets:
+      - database_dsn
+    depends_on:
+      go-migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      python-agent:
+        condition: service_started
+    profiles: [go-control-plane]
+
+  python-agent:
+    build:
+      context: ../..
+      dockerfile: agent-python/Dockerfile
+    environment:
+      PRD_AGENT_ENVIRONMENT: production
+      PRD_AGENT_AGENT_WORKER_ENDPOINT: :9100
+      PRD_AGENT_AGENT_WORKER_ID: worker-1
+      PRD_AGENT_AGENT_WORKER_MAX_INFLIGHT: ${PRD_AGENT_GO_AGENT_RPC_MAX_INFLIGHT_PER_WORKER:-1}
+      PRD_AGENT_AGENT_LOOP_FACTORY: ${PRD_AGENT_AGENT_LOOP_FACTORY:-agent.bootstrap:build_agent_loop}
+      PRD_AGENT_AGENT_MAX_CHECKPOINT_BYTES: ${PRD_AGENT_AGENT_MAX_CHECKPOINT_BYTES:-262144}
+      PRD_AGENT_AGENT_MAX_DRAFT_BYTES: ${PRD_AGENT_AGENT_MAX_DRAFT_BYTES:-1048576}
+      PRD_AGENT_AGENT_MAX_EVIDENCE_ITEMS: ${PRD_AGENT_AGENT_MAX_EVIDENCE_ITEMS:-100}
+      PRD_AGENT_LLM_PROVIDER: deepseek
+      PRD_AGENT_LLM_BASE_URL: https://api.deepseek.com
+      PRD_AGENT_LLM_MODEL: ${PRD_AGENT_LLM_MODEL:-deepseek-v4-pro}
+      PRD_AGENT_LLM_API_KEY_FILE: /run/secrets/deepseek_api_key
+      PRD_AGENT_LLM_TIMEOUT_SECONDS: ${PRD_AGENT_LLM_TIMEOUT_SECONDS:-90}
+      PRD_AGENT_LLM_CONNECT_TIMEOUT_SECONDS: ${PRD_AGENT_LLM_CONNECT_TIMEOUT_SECONDS:-5}
+      PRD_AGENT_LLM_MAX_OUTPUT_TOKENS: ${PRD_AGENT_LLM_MAX_OUTPUT_TOKENS:-4096}
+      PRD_AGENT_LLM_MAX_ITERATIONS: ${PRD_AGENT_LLM_MAX_ITERATIONS:-8}
+      PRD_AGENT_LLM_RUN_TOKEN_BUDGET: ${PRD_AGENT_LLM_RUN_TOKEN_BUDGET:-24000}
+      PRD_AGENT_LLM_MAX_TRANSPORT_RETRIES: ${PRD_AGENT_LLM_MAX_TRANSPORT_RETRIES:-2}
+      PRD_AGENT_LLM_ALLOWED_HOSTS: api.deepseek.com
+    secrets:
+      - deepseek_api_key
+    profiles: [go-control-plane]
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,noexec,nosuid
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL

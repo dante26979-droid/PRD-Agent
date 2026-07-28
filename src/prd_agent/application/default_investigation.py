@@ -36,11 +36,13 @@ class DefaultUnitInvestigationContextProvider:
         *,
         repository_id: str,
         revision: str | None = None,
+        budget=None,
     ) -> None:
         self.application_service = application_service
         self.evidence_store = evidence_store
         self.repository_id = repository_id
         self.revision = revision
+        self.budget = budget
 
     def __call__(self, *, task, run, outline, unit, brief) -> dict:
         snapshot = self.application_service.runner.evidence_service.resolve_snapshot(
@@ -70,6 +72,7 @@ class DefaultUnitInvestigationContextProvider:
             need,
             repository_id=snapshot.repository_id,
             resolved_commit_sha=snapshot.resolved_commit_sha,
+            budget=self.budget,
         )
         if investigation is None:  # pragma: no cover - need is always OPTIONAL
             raise RuntimeError("default investigation was unexpectedly skipped")

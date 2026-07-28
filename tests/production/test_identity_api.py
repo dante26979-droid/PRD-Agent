@@ -222,3 +222,29 @@ def test_production_never_falls_back_to_the_local_principal(monkeypatch):
 
     with pytest.raises(RuntimeError, match="Production requires"):
         create_app(repository, workflow)
+
+
+@pytest.mark.parametrize("environment", ["prod", "development", "preview", ""])
+def test_unknown_environment_never_falls_back_to_the_local_principal(
+    monkeypatch,
+    environment,
+):
+    monkeypatch.setenv("PRD_AGENT_ENVIRONMENT", environment)
+    repository = InMemoryWorkflowRepository()
+    workflow = WorkflowService(repository, HeuristicWorkflowModel())
+
+    with pytest.raises(RuntimeError, match="PRD_AGENT_ENVIRONMENT"):
+        create_app(repository, workflow)
+
+
+@pytest.mark.parametrize("environment", ["test", "staging"])
+def test_non_local_environment_requires_an_explicit_principal_resolver(
+    monkeypatch,
+    environment,
+):
+    monkeypatch.setenv("PRD_AGENT_ENVIRONMENT", environment)
+    repository = InMemoryWorkflowRepository()
+    workflow = WorkflowService(repository, HeuristicWorkflowModel())
+
+    with pytest.raises(RuntimeError, match="requires an authenticated principal"):
+        create_app(repository, workflow)

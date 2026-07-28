@@ -1,11 +1,13 @@
 # PRD Agent 最后一步设计方案：Step 10 Production Profile
 
-> 文档状态：设计完成，待 Step 1～9 发布门禁通过后实施
+> 生效状态：**兼容启用（ACTIVE-COMPATIBLE）**
+> 实施状态：设计完成；2核2GB档位和新数据边界以上位设计为准
 > 设计日期：2026-07-27
 > 对应 PRD：`docs/product/2026-07-21-prd-agent-v1.1-prd.md`
 > 对应总设计：`docs/superpowers/specs/2026-07-21-prd-agent-v1.1-design.md`“阶段 9：产品化基础设施”
 > 前置设计：`2026-07-27-m0-agent-core-step-9-external-integrations-design.md`
 > 配套测试：`2026-07-27-m0-agent-core-step-10-production-profile-test-plan.md`
+> 部署前整改：`2026-07-27-server-deployment-remediation-design.md`
 
 ## 0. 设计结论
 

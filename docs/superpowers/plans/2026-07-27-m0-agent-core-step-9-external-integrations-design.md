@@ -1,11 +1,17 @@
 # M0 Agent Core 第九步设计方案：受控外部集成
 
-> 文档状态：核心独立切片已实现；完整发布门禁待 Provider Sandbox、浏览器 E2E 与 Ablation 结论  
+> 生效状态：**兼容启用（ACTIVE-COMPATIBLE）**
+> 实施状态：核心独立切片已实现；完整发布门禁待Provider Sandbox、浏览器E2E与Ablation
 > 设计日期：2026-07-27  
 > 实现日期：2026-07-27  
 > 对应总设计：V1.1 分阶段交付“阶段 8：外部集成”  
 > 前置设计：`2026-07-27-m0-agent-core-step-8-historical-prd-rag-design.md`  
 > 配套测试：`2026-07-27-m0-agent-core-step-9-external-integrations-test-plan.md`
+
+> 2026-07-28 目标架构更新：飞书不再只是最终导出目标，而是Published PRD
+> 正文的权威源和历史PRD原文来源；GitHub继续作为代码权威源。Provider
+> Binding、Revision同步、按需读取与RAG目录的完整合同见
+> `2026-07-28-feishu-github-rag-queue-architecture-design.md`。
 
 ## 0. 设计结论
 
