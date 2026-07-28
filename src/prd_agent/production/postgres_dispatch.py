@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 import json
 import uuid
 
+from prd_agent.hashing import sha256_json
 from prd_agent.production.dispatch import (
     LeaseGrant,
     LostLeaseError,
@@ -43,22 +44,98 @@ class PostgresProductionControlStore:
         reason: str,
         now: datetime,
         tenant_id: str = "local",
+        max_global_runnable: int = 30,
+        max_runnable_per_owner: int = 1,
     ) -> OutboxMessage:
         with self.connection.transaction():
             with self.connection.cursor() as cursor:
-                cursor.execute(
-                    """
-                    INSERT INTO production_run_control (
-                        run_id, task_id, tenant_id, owner_id, status,
-                        created_at, updated_at
-                    ) VALUES (%s, %s, %s, %s, 'QUEUED', %s, %s)
-                    ON CONFLICT (run_id) DO NOTHING
-                    RETURNING run_id
-                    """,
-                    (run_id, task_id, tenant_id, owner_id, now, now),
-                )
+                cursor.execute("SELECT to_regclass('public.queue_slots')")
+                queue_enabled = cursor.fetchone()[0] is not None
+                status = "QUEUED"
+                admitted = True
+                if queue_enabled:
+                    cursor.execute(
+                        "SELECT pg_advisory_xact_lock(hashtext(%s))",
+                        ("prd-agent-run-admission",),
+                    )
+                    cursor.execute(
+                        """
+                        SELECT COUNT(*)
+                          FROM production_run_control
+                         WHERE queue_slot_acquired = TRUE
+                           AND status IN ('QUEUED', 'RUNNING')
+                        """
+                    )
+                    global_runnable = cursor.fetchone()[0]
+                    cursor.execute(
+                        """
+                        SELECT COUNT(*)
+                          FROM production_run_control
+                         WHERE tenant_id = %s AND owner_id = %s
+                           AND queue_slot_acquired = TRUE
+                           AND status IN ('QUEUED', 'RUNNING')
+                        """,
+                        (tenant_id, owner_id),
+                    )
+                    owner_runnable = cursor.fetchone()[0]
+                    admitted = (
+                        global_runnable < max_global_runnable
+                        and owner_runnable < max_runnable_per_owner
+                    )
+                    status = "QUEUED" if admitted else "WAITING_CAPACITY"
+                if queue_enabled:
+                    cursor.execute(
+                        """
+                        INSERT INTO production_run_control (
+                            run_id, task_id, tenant_id, owner_id, status,
+                            queue_slot_acquired, queue_admitted_at,
+                            created_at, updated_at
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (run_id) DO NOTHING
+                        RETURNING run_id
+                        """,
+                        (
+                            run_id,
+                            task_id,
+                            tenant_id,
+                            owner_id,
+                            status,
+                            admitted,
+                            now if admitted else None,
+                            now,
+                            now,
+                        ),
+                    )
+                else:
+                    cursor.execute(
+                        """
+                        INSERT INTO production_run_control (
+                            run_id, task_id, tenant_id, owner_id, status,
+                            created_at, updated_at
+                        ) VALUES (%s, %s, %s, %s, 'QUEUED', %s, %s)
+                        ON CONFLICT (run_id) DO NOTHING
+                        RETURNING run_id
+                        """,
+                        (run_id, task_id, tenant_id, owner_id, now, now),
+                    )
                 created = cursor.fetchone() is not None
                 if created:
+                    if queue_enabled and admitted:
+                        cursor.execute(
+                            """
+                            INSERT INTO queue_slots (
+                                slot_id, run_id, tenant_id, owner_id,
+                                state, acquired_at
+                            ) VALUES (%s, %s, %s, %s, 'ACQUIRED', %s)
+                            """,
+                            (
+                                f"slot-{uuid.uuid4().hex}",
+                                run_id,
+                                tenant_id,
+                                owner_id,
+                                now,
+                            ),
+                        )
                     message_id = f"outbox-{uuid.uuid4().hex}"
                     payload = {
                         "message_id": message_id,
@@ -78,7 +155,9 @@ class PostgresProductionControlStore:
                             message_id,
                             run_id,
                             json.dumps(payload, separators=(",", ":")),
-                            now,
+                            now
+                            if admitted
+                            else now + timedelta(days=36500),
                         ),
                     )
                 cursor.execute(self._OUTBOX_SELECT + " WHERE aggregate_id = %s", (run_id,))
@@ -86,6 +165,121 @@ class PostgresProductionControlStore:
         if row is None:
             raise RuntimeError("run exists without its dispatch outbox")
         return self._outbox_from_row(row)
+
+    def admit_waiting_runs(
+        self,
+        *,
+        now: datetime,
+        max_global_runnable: int = 30,
+        max_runnable_per_owner: int = 1,
+        limit: int = 20,
+    ) -> tuple[ProductionRun, ...]:
+        """Promote capacity waiters using PostgreSQL as the authority."""
+
+        promoted: list[ProductionRun] = []
+        with self.connection.transaction():
+            with self.connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT pg_advisory_xact_lock(hashtext(%s))",
+                    ("prd-agent-run-admission",),
+                )
+                while len(promoted) < limit:
+                    cursor.execute(
+                        """
+                        SELECT COUNT(*)
+                          FROM production_run_control
+                         WHERE queue_slot_acquired = TRUE
+                           AND status IN ('QUEUED', 'RUNNING')
+                        """
+                    )
+                    if cursor.fetchone()[0] >= max_global_runnable:
+                        break
+                    cursor.execute(
+                        """
+                        SELECT run.run_id, run.tenant_id, run.owner_id
+                          FROM production_run_control AS run
+                         WHERE run.status = 'WAITING_CAPACITY'
+                           AND run.queue_slot_acquired = FALSE
+                           AND (
+                               SELECT COUNT(*)
+                                 FROM production_run_control AS active
+                                WHERE active.tenant_id = run.tenant_id
+                                  AND active.owner_id = run.owner_id
+                                  AND active.queue_slot_acquired = TRUE
+                                  AND active.status IN ('QUEUED', 'RUNNING')
+                           ) < %s
+                         ORDER BY COALESCE(
+                                      (
+                                          SELECT last_admitted_at
+                                            FROM scheduler_cursors AS cursor
+                                           WHERE cursor.tenant_id = run.tenant_id
+                                             AND cursor.owner_id = run.owner_id
+                                      ), TIMESTAMPTZ 'epoch'
+                                  ), run.created_at, run.run_id
+                         FOR UPDATE OF run SKIP LOCKED
+                         LIMIT 1
+                        """,
+                        (max_runnable_per_owner,),
+                    )
+                    candidate = cursor.fetchone()
+                    if candidate is None:
+                        break
+                    run_id, tenant_id, owner_id = candidate
+                    cursor.execute(
+                        """
+                        UPDATE production_run_control
+                           SET status = 'QUEUED',
+                               queue_slot_acquired = TRUE,
+                               queue_admitted_at = %s,
+                               updated_at = %s
+                         WHERE run_id = %s
+                        """,
+                        (now, now, run_id),
+                    )
+                    cursor.execute(
+                        """
+                        INSERT INTO queue_slots (
+                            slot_id, run_id, tenant_id, owner_id,
+                            state, acquired_at
+                        ) VALUES (%s, %s, %s, %s, 'ACQUIRED', %s)
+                        ON CONFLICT (run_id) DO UPDATE
+                            SET state = 'ACQUIRED', released_at = NULL,
+                                acquired_at = EXCLUDED.acquired_at
+                        """,
+                        (
+                            f"slot-{uuid.uuid4().hex}",
+                            run_id,
+                            tenant_id,
+                            owner_id,
+                            now,
+                        ),
+                    )
+                    cursor.execute(
+                        """
+                        UPDATE outbox_messages
+                           SET available_at = %s
+                         WHERE aggregate_id = %s
+                           AND published_at IS NULL
+                           AND quarantined_at IS NULL
+                        """,
+                        (now, run_id),
+                    )
+                    cursor.execute(
+                        """
+                        INSERT INTO scheduler_cursors (
+                            tenant_id, owner_id, last_admitted_at,
+                            last_run_id, updated_at
+                        ) VALUES (%s, %s, %s, %s, %s)
+                        ON CONFLICT (tenant_id, owner_id) DO UPDATE SET
+                            last_admitted_at = EXCLUDED.last_admitted_at,
+                            last_run_id = EXCLUDED.last_run_id,
+                            updated_at = EXCLUDED.updated_at
+                        """,
+                        (tenant_id, owner_id, now, run_id, now),
+                    )
+                    cursor.execute(self._RUN_SELECT + " WHERE run_id = %s", (run_id,))
+                    promoted.append(self._run_from_row(cursor.fetchone()))
+        return tuple(promoted)
 
     def get_outbox(self, message_id: str) -> OutboxMessage:
         with self.connection.cursor() as cursor:
@@ -113,6 +307,15 @@ class PostgresProductionControlStore:
                          WHERE published_at IS NULL
                            AND quarantined_at IS NULL
                            AND available_at <= %s
+                           AND (
+                               payload->>'reason' = 'RECOVER'
+                               OR EXISTS (
+                                   SELECT 1
+                                     FROM production_run_control AS run
+                                    WHERE run.run_id = outbox_messages.aggregate_id
+                                      AND run.status = 'QUEUED'
+                               )
+                           )
                            AND (
                                lease_expires_at IS NULL
                                OR lease_expires_at <= %s
@@ -252,23 +455,116 @@ class PostgresProductionControlStore:
         *,
         owner_id: str,
         now: datetime,
+        idempotency_key: str,
+        request_hash: str,
     ) -> ProductionRun:
-        previous = self.get_run(run_id)
-        if previous.owner_id != owner_id:
-            raise KeyError(run_id)
-        if previous.status not in {
-            ProductionRunStatus.FAILED,
-            ProductionRunStatus.STOPPED,
-        }:
-            raise ValueError("only failed or stopped runs can be retried")
         new_run_id = f"run-{uuid.uuid4().hex}"
-        self.create_run_dispatch(
-            run_id=new_run_id,
-            task_id=previous.task_id,
-            owner_id=owner_id,
-            reason="RETRY",
-            now=now,
-        )
+        key_hash = sha256_json({"idempotency_key": idempotency_key})
+        with self.connection.transaction():
+            with self.connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO command_idempotency (
+                        tenant_id, owner_id, operation,
+                        idempotency_key_hash, request_hash,
+                        resource_type, resource_id, created_at
+                    ) VALUES (
+                        'local', %s, 'RETRY_RUN', %s, %s,
+                        'RUN', %s, %s
+                    )
+                    ON CONFLICT (
+                        tenant_id, owner_id, operation,
+                        idempotency_key_hash
+                    ) DO NOTHING
+                    RETURNING resource_id
+                    """,
+                    (
+                        owner_id,
+                        key_hash,
+                        request_hash,
+                        new_run_id,
+                        now,
+                    ),
+                )
+                reserved = cursor.fetchone()
+                if reserved is None:
+                    cursor.execute(
+                        """
+                        SELECT request_hash, resource_id
+                          FROM command_idempotency
+                         WHERE tenant_id = 'local'
+                           AND owner_id = %s
+                           AND operation = 'RETRY_RUN'
+                           AND idempotency_key_hash = %s
+                        """,
+                        (owner_id, key_hash),
+                    )
+                    replay = cursor.fetchone()
+                    if replay is None or replay[0] != request_hash:
+                        raise ValueError(
+                            "retry idempotency key was used with "
+                            "different input"
+                        )
+                    new_run_id = replay[1]
+                else:
+                    cursor.execute(
+                        self._RUN_SELECT
+                        + " WHERE run_id = %s AND owner_id = %s FOR UPDATE",
+                        (run_id, owner_id),
+                    )
+                    row = cursor.fetchone()
+                    if row is None:
+                        raise KeyError(run_id)
+                    previous = self._run_from_row(row)
+                    if previous.status not in {
+                        ProductionRunStatus.FAILED,
+                        ProductionRunStatus.STOPPED,
+                    }:
+                        raise ValueError(
+                            "only failed or stopped runs can be retried"
+                        )
+                    cursor.execute(
+                        """
+                        INSERT INTO production_run_control (
+                            run_id, task_id, tenant_id, owner_id, status,
+                            created_at, updated_at
+                        ) VALUES (
+                            %s, %s, 'local', %s, 'QUEUED', %s, %s
+                        )
+                        """,
+                        (
+                            new_run_id,
+                            previous.task_id,
+                            owner_id,
+                            now,
+                            now,
+                        ),
+                    )
+                    message_id = f"outbox-{uuid.uuid4().hex}"
+                    payload = {
+                        "message_id": message_id,
+                        "payload_version": 1,
+                        "run_id": new_run_id,
+                        "reason": "RETRY",
+                    }
+                    cursor.execute(
+                        """
+                        INSERT INTO outbox_messages (
+                            message_id, aggregate_type, aggregate_id,
+                            aggregate_version, topic, payload_version,
+                            payload, available_at
+                        ) VALUES (
+                            %s, 'RUN', %s, 1, 'agent.run', 1,
+                            %s::jsonb, %s
+                        )
+                        """,
+                        (
+                            message_id,
+                            new_run_id,
+                            json.dumps(payload, separators=(",", ":")),
+                            now,
+                        ),
+                    )
         return self.get_run(new_run_id)
 
     def acquire_run(
@@ -386,6 +682,25 @@ class PostgresProductionControlStore:
                     ),
                 )
                 row = cursor.fetchone()
+                if row is not None:
+                    cursor.execute("SELECT to_regclass('public.queue_slots')")
+                    if cursor.fetchone()[0] is not None:
+                        cursor.execute(
+                            """
+                            UPDATE production_run_control
+                               SET queue_slot_acquired = FALSE
+                             WHERE run_id = %s
+                            """,
+                            (grant.run_id,),
+                        )
+                        cursor.execute(
+                            """
+                            UPDATE queue_slots
+                               SET state = 'RELEASED', released_at = CURRENT_TIMESTAMP
+                             WHERE run_id = %s AND state = 'ACQUIRED'
+                            """,
+                            (grant.run_id,),
+                        )
         if row is None:
             raise LostLeaseError("worker lease is no longer current")
         return self._run_from_row(row)
@@ -437,8 +752,10 @@ class PostgresProductionControlStore:
                              FROM outbox_messages AS message
                             WHERE message.aggregate_id = run.run_id
                               AND message.payload->>'reason' = 'RECOVER'
-                              AND message.published_at IS NULL
-                              AND message.quarantined_at IS NULL
+                              AND (
+                                  message.published_at IS NULL
+                                  OR message.quarantined_at IS NOT NULL
+                              )
                        )
                      ORDER BY run.lease_expires_at, run.run_id
                      FOR UPDATE SKIP LOCKED

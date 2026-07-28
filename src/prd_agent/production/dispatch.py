@@ -4,7 +4,8 @@ from copy import deepcopy
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from enum import StrEnum
-from threading import RLock
+from threading import Event, Lock, RLock, Thread
+import time
 from typing import Callable, Protocol
 import uuid
 
@@ -14,6 +15,8 @@ def _now() -> datetime:
 
 
 class ProductionRunStatus(StrEnum):
+    WAITING_CAPACITY = "WAITING_CAPACITY"
+    WAITING_PROVIDER = "WAITING_PROVIDER"
     QUEUED = "QUEUED"
     RUNNING = "RUNNING"
     WAITING_USER = "WAITING_USER"
@@ -62,6 +65,7 @@ class ProductionRun:
     task_id: str
     owner_id: str
     status: ProductionRunStatus
+    queue_slot_acquired: bool = False
     fencing_token: int = 0
     lease_owner: str | None = None
     lease_expires_at: datetime | None = None
@@ -77,6 +81,20 @@ class LeaseGrant:
     expires_at: datetime
 
 
+@dataclass(frozen=True)
+class QueuePolicy:
+    """Database-compatible admission limits for the small-server profile."""
+
+    max_global_runnable: int = 30
+    max_runnable_per_owner: int = 1
+
+    def __post_init__(self) -> None:
+        if self.max_global_runnable < 1:
+            raise ValueError("max_global_runnable must be positive")
+        if self.max_runnable_per_owner < 1:
+            raise ValueError("max_runnable_per_owner must be positive")
+
+
 class MessageBroker(Protocol):
     def publish(self, command: RunCommand) -> None: ...
 
@@ -85,14 +103,106 @@ class LostLeaseError(RuntimeError):
     pass
 
 
+class RunExecutionContext:
+    """Lease-aware context passed to every production run handler."""
+
+    def __init__(
+        self,
+        store,
+        grant: LeaseGrant,
+        *,
+        lease_ttl: timedelta,
+        clock: Callable[[], datetime],
+    ) -> None:
+        self.store = store
+        self._grant = grant
+        self.lease_ttl = lease_ttl
+        self.clock = clock
+        self._lock = Lock()
+        self._lost_lease = False
+
+    @property
+    def run_id(self) -> str:
+        return self._grant.run_id
+
+    @property
+    def worker_id(self) -> str:
+        return self._grant.worker_id
+
+    @property
+    def fencing_token(self) -> int:
+        return self._grant.fencing_token
+
+    @property
+    def grant(self) -> LeaseGrant:
+        with self._lock:
+            return self._grant
+
+    @property
+    def lost_lease(self) -> bool:
+        with self._lock:
+            return self._lost_lease
+
+    def heartbeat(self, *, now: datetime | None = None) -> LeaseGrant:
+        with self._lock:
+            if self._lost_lease:
+                raise LostLeaseError("worker lease is no longer current")
+            try:
+                self._grant = self.store.heartbeat(
+                    self._grant,
+                    now=now or self.clock(),
+                    lease_ttl=self.lease_ttl,
+                )
+            except LostLeaseError:
+                self._lost_lease = True
+                raise
+            return self._grant
+
+    def mark_lost(self) -> None:
+        with self._lock:
+            self._lost_lease = True
+
+    def cancellation_requested(self) -> bool:
+        run = self.store.get_run(self.run_id)
+        return run.cancellation_requested_at is not None
+
+
 class InMemoryProductionControlStore:
     """Thread-safe reference implementation of the production control contract."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, queue_policy: QueuePolicy | None = None) -> None:
         self._runs: dict[str, ProductionRun] = {}
         self._outbox: dict[str, OutboxMessage] = {}
         self._inbox: set[tuple[str, str]] = set()
+        self._command_idempotency: dict[
+            tuple[str, str], tuple[str, str]
+        ] = {}
+        self.queue_policy = queue_policy or QueuePolicy()
+        self._created_order: dict[str, int] = {}
+        self._next_created_order = 0
+        self._owner_last_admitted: dict[str, int] = {}
+        self._admission_turn = 0
         self._lock = RLock()
+
+    def _runnable_runs(self) -> tuple[ProductionRun, ...]:
+        return tuple(
+            run
+            for run in self._runs.values()
+            if run.queue_slot_acquired
+            and run.status
+            in {
+                ProductionRunStatus.QUEUED,
+                ProductionRunStatus.RUNNING,
+            }
+        )
+
+    def _can_admit(self, owner_id: str) -> bool:
+        runnable = self._runnable_runs()
+        return (
+            len(runnable) < self.queue_policy.max_global_runnable
+            and sum(run.owner_id == owner_id for run in runnable)
+            < self.queue_policy.max_runnable_per_owner
+        )
 
     def create_run_dispatch(
         self,
@@ -130,11 +240,22 @@ class InMemoryProductionControlStore:
                 command=command,
                 available_at=current_time,
             )
+            status = (
+                ProductionRunStatus.QUEUED
+                if self._can_admit(owner_id)
+                else ProductionRunStatus.WAITING_CAPACITY
+            )
+            self._next_created_order += 1
+            self._created_order[run_id] = self._next_created_order
+            if status is ProductionRunStatus.QUEUED:
+                self._admission_turn += 1
+                self._owner_last_admitted[owner_id] = self._admission_turn
             self._runs[run_id] = ProductionRun(
                 run_id=run_id,
                 task_id=task_id,
                 owner_id=owner_id,
-                status=ProductionRunStatus.QUEUED,
+                status=status,
+                queue_slot_acquired=status is ProductionRunStatus.QUEUED,
             )
             self._outbox[message_id] = outbox
             return deepcopy(outbox)
@@ -160,6 +281,7 @@ class InMemoryProductionControlStore:
             for value in candidates:
                 if len(claimed) >= limit:
                     break
+                run = self._runs[value.aggregate_id]
                 if (
                     value.published_at is not None
                     or value.quarantined_at is not None
@@ -168,6 +290,7 @@ class InMemoryProductionControlStore:
                         value.lease_expires_at is not None
                         and value.lease_expires_at > now
                     )
+                    or run.status is not ProductionRunStatus.QUEUED
                 ):
                     continue
                 updated = replace(
@@ -265,8 +388,19 @@ class InMemoryProductionControlStore:
         *,
         owner_id: str,
         now: datetime,
+        idempotency_key: str,
+        request_hash: str,
     ) -> ProductionRun:
         with self._lock:
+            idempotency = (owner_id, idempotency_key)
+            replay = self._command_idempotency.get(idempotency)
+            if replay is not None:
+                replay_hash, replay_run_id = replay
+                if replay_hash != request_hash:
+                    raise ValueError(
+                        "retry idempotency key was used with different input"
+                    )
+                return deepcopy(self._runs[replay_run_id])
             previous = self._runs[run_id]
             if previous.owner_id != owner_id:
                 raise KeyError(run_id)
@@ -283,6 +417,10 @@ class InMemoryProductionControlStore:
                 reason="RETRY",
                 now=now,
             )
+            self._command_idempotency[idempotency] = (
+                request_hash,
+                new_run_id,
+            )
             return deepcopy(self._runs[new_run_id])
 
     def acquire_run(
@@ -296,6 +434,12 @@ class InMemoryProductionControlStore:
         with self._lock:
             run = self._runs[run_id]
             if run.status in TERMINAL_RUN_STATUSES:
+                return None
+            if run.status in {
+                ProductionRunStatus.WAITING_CAPACITY,
+                ProductionRunStatus.WAITING_PROVIDER,
+                ProductionRunStatus.WAITING_USER,
+            }:
                 return None
             if (
                 run.lease_owner is not None
@@ -337,11 +481,48 @@ class InMemoryProductionControlStore:
             updated = replace(
                 run,
                 status=status,
+                queue_slot_acquired=False,
                 lease_owner=None,
                 lease_expires_at=None,
             )
             self._runs[grant.run_id] = updated
+            self._release_and_admit_waiting_locked()
             return deepcopy(updated)
+
+    def admit_waiting_runs(self) -> tuple[ProductionRun, ...]:
+        """Promote capacity waiters fairly across owners."""
+
+        with self._lock:
+            return self._release_and_admit_waiting_locked()
+
+    def _release_and_admit_waiting_locked(self) -> tuple[ProductionRun, ...]:
+        promoted: list[ProductionRun] = []
+        while len(self._runnable_runs()) < self.queue_policy.max_global_runnable:
+            candidates = [
+                run
+                for run in self._runs.values()
+                if run.status is ProductionRunStatus.WAITING_CAPACITY
+                and self._can_admit(run.owner_id)
+            ]
+            if not candidates:
+                break
+            run = min(
+                candidates,
+                key=lambda item: (
+                    self._owner_last_admitted.get(item.owner_id, -1),
+                    self._created_order[item.run_id],
+                ),
+            )
+            self._admission_turn += 1
+            self._owner_last_admitted[run.owner_id] = self._admission_turn
+            promoted_run = replace(
+                run,
+                status=ProductionRunStatus.QUEUED,
+                queue_slot_acquired=True,
+            )
+            self._runs[run.run_id] = promoted_run
+            promoted.append(deepcopy(promoted_run))
+        return tuple(promoted)
 
     def heartbeat(
         self,
@@ -404,8 +585,10 @@ class InMemoryProductionControlStore:
                 has_recovery = any(
                     item.aggregate_id == run.run_id
                     and item.command.reason == "RECOVER"
-                    and item.published_at is None
-                    and item.quarantined_at is None
+                    and (
+                        item.published_at is None
+                        or item.quarantined_at is not None
+                    )
                     for item in self._outbox.values()
                 )
                 if has_recovery:
@@ -515,7 +698,7 @@ class RunExecutor:
         store,
         *,
         worker_id: str,
-        handler: Callable[[str], None],
+        handler: Callable[[RunExecutionContext], None],
         lease_ttl: timedelta = timedelta(seconds=60),
         consumer_name: str = "agent-worker",
     ) -> None:
@@ -532,10 +715,18 @@ class RunExecutor:
         if current.status in TERMINAL_RUN_STATUSES:
             self.store.record_inbox(self.consumer_name, command.message_id)
             return current.status.value
+        execution_started_at = now or _now()
+        monotonic_started_at = time.monotonic()
+
+        def execution_clock() -> datetime:
+            return execution_started_at + timedelta(
+                seconds=time.monotonic() - monotonic_started_at
+            )
+
         grant = self.store.acquire_run(
             command.run_id,
             worker_id=self.worker_id,
-            now=now or _now(),
+            now=execution_started_at,
             lease_ttl=self.lease_ttl,
         )
         if grant is None:
@@ -548,18 +739,54 @@ class RunExecutor:
             )
             self.store.record_inbox(self.consumer_name, command.message_id)
             return result.status.value
+        context = RunExecutionContext(
+            self.store,
+            grant,
+            lease_ttl=self.lease_ttl,
+            clock=execution_clock,
+        )
+        heartbeat_stop = Event()
+
+        def heartbeat_loop() -> None:
+            interval = max(self.lease_ttl.total_seconds() / 3, 0.01)
+            while not heartbeat_stop.wait(interval):
+                try:
+                    context.heartbeat()
+                except LostLeaseError:
+                    context.mark_lost()
+                    return
+
+        heartbeat_thread = Thread(
+            target=heartbeat_loop,
+            name=f"lease-heartbeat-{command.run_id}",
+            daemon=True,
+        )
+        heartbeat_thread.start()
         try:
-            self.handler(command.run_id)
+            self.handler(context)
         except Exception:
+            heartbeat_stop.set()
+            heartbeat_thread.join()
+            if context.lost_lease:
+                return self.store.get_run(command.run_id).status.value
             result = self.store.complete_run(
-                grant,
+                context.grant,
                 ProductionRunStatus.FAILED,
             )
             self.store.record_inbox(self.consumer_name, command.message_id)
             return result.status.value
+        heartbeat_stop.set()
+        heartbeat_thread.join()
+        if context.lost_lease:
+            return self.store.get_run(command.run_id).status.value
+        terminal_status = (
+            ProductionRunStatus.STOPPED
+            if context.cancellation_requested()
+            else ProductionRunStatus.SUCCEEDED
+        )
         result = self.store.complete_run(
-            grant,
-            ProductionRunStatus.SUCCEEDED,
+            context.grant,
+            terminal_status,
         )
         self.store.record_inbox(self.consumer_name, command.message_id)
         return result.status.value

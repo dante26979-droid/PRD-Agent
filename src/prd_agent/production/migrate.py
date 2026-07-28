@@ -26,7 +26,6 @@ def migrate(root: Path) -> None:
                     cursor.execute(
                         (root / "schema.sql").read_text(encoding="utf-8")
                     )
-                    return
                 cursor.execute(
                     """
                     CREATE TABLE IF NOT EXISTS schema_migrations (
