@@ -5,13 +5,43 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "prd-agent"
 version = "0.1.0"
-description = "M0 PRD Agent evaluation and Direct Prompt baseline"
+description = "Grounded, resumable PRD Agent with bounded investigation and complete workflow"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "pydantic>=2.10,<3",
+    "PyYAML>=6,<7",
+    "sqlglot>=25,<30",
+]
 
 [project.optional-dependencies]
 postgres = ["psycopg[binary]>=3.2,<4"]
-dev = ["pytest>=8,<9"]
+api = [
+    "fastapi>=0.115,<1",
+    "uvicorn[standard]>=0.34,<1",
+]
+workflow = [
+    "langgraph>=0.2,<2",
+    "langgraph-checkpoint-postgres>=2,<4",
+    "psycopg[binary]>=3.2,<4",
+]
+production = [
+    "celery[redis]>=5.6,<6",
+    "PyJWT[crypto]>=2.13,<3",
+    "psycopg[binary,pool]>=3.3,<4",
+    "redis>=6.2,<6.5",
+]
+dev = [
+    "httpx>=0.28,<1",
+    "pytest>=8,<9",
+]
+
+[project.scripts]
+prd-agent = "prd_agent.cli:main"
+prd-agent-eval = "prd_agent.eval.cli:main"
+prd-agent-api = "prd_agent.api.__main__:main"
+prd-agent-publisher = "prd_agent.production.publisher:main"
+prd-agent-scheduler = "prd_agent.production.scheduler:main"
+prd-agent-migrate = "prd_agent.production.migrate:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

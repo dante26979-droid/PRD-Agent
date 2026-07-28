@@ -1,0 +1,182 @@
+# PRD Agent
+
+M0 Portfolio Core includes the Direct Prompt evaluation baseline, resumable PRD workflow,
+commit-pinned read-only Repository Tools, deterministic Evidence/Facts and a bounded
+Investigation Loop. Step 5 adds Fact/Claim Grounding, one targeted supplement, Grounding
+metrics and deterministic Evidence Appendix rendering. Step 6 adds multi-level outlines,
+dynamic confirmation units, confirmed-only context, immutable section/document versions,
+Document Quality gates, user-approved revision and explicit finalization. Step 7 adds an
+owner-scoped FastAPI, resumable SSE stream and a responsive Next.js PRD workbench.
+
+## Local setup
+
+```bash
+python3 -m venv venv
+venv/bin/python -m pip install -e '.[api,postgres,workflow,production,dev]'
+npm --prefix web install
+docker compose -f infra/local/docker-compose.yml up -d
+export PRD_AGENT_DATABASE_DSN='postgresql://prd_agent:prd_agent_local_only@localhost:5432/prd_agent'
+```
+
+For a PostgreSQL volume created before Step 2, apply `infra/local/schema.sql` once; Docker's
+initialization directory only runs for a new volume.
+For a database created before Step 4, also apply
+`infra/local/migrations/20260723_step4_investigation.sql` once.
+For a database created before Step 5/6, then apply:
+
+```bash
+psql "$PRD_AGENT_DATABASE_DSN" \
+  -f infra/local/migrations/20260723_step5_step6_grounding_workflow.sql
+```
+
+For a database created before Step 7, apply the owner/query migration:
+
+```bash
+psql "$PRD_AGENT_DATABASE_DSN" \
+  -f infra/local/migrations/20260726_step7_web_owner_queries.sql
+```
+
+For an existing database, apply the Step 8–10 expand migrations in filename
+order. The production migration runner does this under a PostgreSQL advisory
+lock:
+
+```bash
+PRD_AGENT_DATABASE_DSN="$PRD_AGENT_DATABASE_DSN" \
+  prd-agent-migrate --root infra/local
+```
+
+Step 10 adds the production profile: OIDC principal mapping, per-request
+PostgreSQL pool connections, transactional Outbox/Inbox, worker leases with
+heartbeat and fencing, Celery JSON queue contracts, persisted cancellation,
+recovery reconciliation, OAuth/Secret/Webhook security boundaries, and
+production deployment manifests. PostgreSQL remains the business source of
+truth; Redis is used for broker and low-latency cancellation notification only.
+
+## Web workbench
+
+Start the API and Web app in separate terminals:
+
+```bash
+PRD_AGENT_DATABASE_DSN="$PRD_AGENT_DATABASE_DSN" \
+  venv/bin/uvicorn prd_agent.api:create_app --factory \
+  --host 127.0.0.1 --port 8000
+
+npm --prefix web run dev
+```
+
+Open `http://127.0.0.1:3000`. The Portfolio profile uses the fixed `local-user`
+principal, but every list, snapshot, command and event query still enforces `owner_id`.
+The UI supports task creation, clarification, outline/unit confirmation, quality revision,
+finalization, reopen, safe Markdown and event-cursor recovery.
+
+## Production profile
+
+Production startup fails closed unless OIDC and database-secret configuration
+is present. Required variables are:
+
+```text
+PRD_AGENT_ENVIRONMENT=production
+PRD_AGENT_DATABASE_DSN_FILE=/run/secrets/database_dsn
+PRD_AGENT_BROKER_URL=redis://redis:6379/0
+PRD_AGENT_OIDC_ISSUER=https://...
+PRD_AGENT_OIDC_AUDIENCE=prd-agent-api
+PRD_AGENT_OIDC_JWKS_URL=https://.../.well-known/jwks.json
+PRD_AGENT_CORS_ORIGINS=https://your-web-origin.example
+```
+
+`infra/production/docker-compose.yml` is a hardened reference topology for
+PostgreSQL, Redis, the expand migration job, API, Outbox publisher and
+reconciler. Create `infra/production/secrets/postgres_password.txt` and
+`infra/production/secrets/database_dsn.txt` outside version control before
+starting it. Containers run as non-root with dropped capabilities and a
+read-only root filesystem.
+
+Operational commands:
+
+```bash
+prd-agent-publisher --once
+prd-agent-scheduler --once
+prd-agent-migrate --root infra/local
+```
+
+## Minimal workflow
+
+```bash
+prd-agent workflow start --message '订单列表增加创建时间筛选' --idempotency-key start-001
+prd-agent workflow show --task-id TASK_ID
+prd-agent workflow confirm-outline --task-id TASK_ID --outline-version 1 \
+  --expected-task-version TASK_VERSION --idempotency-key outline-001
+prd-agent workflow confirm-unit --task-id TASK_ID --unit-id UNIT_ID \
+  --expected-task-version TASK_VERSION --idempotency-key unit-001
+prd-agent workflow finalize --task-id TASK_ID --document-id DOCUMENT_ID \
+  --content-hash DOCUMENT_CONTENT_HASH --expected-task-version TASK_VERSION \
+  --idempotency-key finalize-001
+prd-agent workflow reopen --task-id TASK_ID --unit-id UNIT_ID \
+  --reason '业务规则发生变化' --expected-task-version TASK_VERSION \
+  --idempotency-key reopen-001
+```
+
+The CLI uses a deterministic offline model so the state machine can be demonstrated without
+external credentials. A task becomes `COMPLETED` only after every confirmation unit is
+confirmed, document checks pass and `finalize` identifies the current document hash.
+
+## Verification
+
+```bash
+venv/bin/python -m pytest -q
+# Runs every PostgreSQL integration test instead of skipping the database gate:
+PRD_AGENT_TEST_DATABASE_DSN="$PRD_AGENT_DATABASE_DSN" \
+  venv/bin/python -m pytest -q
+npm --prefix web run test
+npm --prefix web run typecheck
+npm --prefix web run build
+
+# Regenerate frontend API types while FastAPI is running:
+npm --prefix web run types:api
+
+PYTHONPATH=src python3 -m prd_agent.eval run-baseline \
+  --manifest eval/cases/manifest.json \
+  --config eval/configs/minimal_workflow.json
+
+PYTHONPATH=src python3 -m prd_agent.eval run-baseline \
+  --manifest eval/cases/manifest.json \
+  --config eval/configs/single_retrieval.json
+
+PYTHONPATH=src python3 -m prd_agent.eval run-baseline \
+  --manifest eval/cases/manifest.json \
+  --config eval/configs/bounded_investigation.json
+```
+
+## Repository evidence
+
+`RepositoryEvidenceService` accepts only registered, schema-versioned Tool Actions. The
+included registry exposes `repo_tree`, `search_text`, `read_file`, `find_symbol`,
+`find_references`, `parse_openapi`, `parse_database_schema`, and `find_related_tests`.
+Repository IDs map to server-configured
+roots and prefixes; all reads come from Git objects at a resolved 40-character commit SHA.
+
+Text/tree/test results remain Evidence only. OpenAPI and PostgreSQL DDL Parser results can
+become `CODE_VERIFIED` facts only after their commit, blob, locator and excerpt hash have
+been revalidated.
+
+## Bounded investigation
+
+`InvestigationApplicationService` creates one Investigation per Information Need and pins
+the repository commit for its lifetime. `InvestigationRunner` asks for one structured action
+at a time, validates it through the existing Tool Registry, and stops on complete Coverage,
+hard budget, duplicate/no-progress limits, cancellation, or an unrecoverable boundary error.
+Workflow unit generation accepts an optional ID-only investigation context provider; model
+output cannot attach arbitrary Fact or Evidence IDs directly.
+
+## Grounding and complete workflow
+
+`GroundingService` validates repository/commit scope, Evidence availability, Fact status,
+open conflicts and Claim-to-Fact links. Unsupported current-state claims never become
+confirmable content. A configured supplement provider can make one targeted attempt; its
+Evidence is grounded again before use.
+
+The complete workflow supports up to three outline levels and at most 15 confirmation units.
+Only the current dependency-ready unit can be generated or confirmed. A multi-node unit
+returns structured sections, while section titles remain locked to the confirmed outline.
+Document Quality issues block finalization; user-approved revisions create new section and
+document versions without overwriting prior snapshots.

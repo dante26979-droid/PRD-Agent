@@ -9,10 +9,14 @@ from pathlib import Path
 
 from .case_loader import load_dataset
 from .models import BaselineConfig, ModelResponse
+from .minimal_workflow import MinimalWorkflowBaseline
+from .bounded_investigation import BoundedInvestigationBaseline
+from .single_retrieval import SingleRetrievalBaseline
 from .postgres_store import PostgresRunStore
 from .prompt_baseline import DirectPromptBaseline
 from .report import build_report
 from .runner import BaselineRunner, InMemoryRunStore
+from prd_agent.workflow.stub_model import HeuristicWorkflowModel
 
 
 class StubModel:
@@ -43,6 +47,7 @@ def _load_config(path: Path) -> BaselineConfig:
         dataset_version=str(value["dataset_version"]),
         trials_per_case=int(value.get("trials_per_case", 3)),
         timeout_seconds=float(value.get("timeout_seconds", 120)),
+        options=dict(value.get("budget", {})),
     )
 
 
@@ -65,12 +70,23 @@ def validate_dataset_command(args: argparse.Namespace) -> int:
 def run_baseline_command(args: argparse.Namespace) -> int:
     dataset = load_dataset(args.manifest)
     config = _load_config(Path(args.config))
-    model = StubModel()
+    if config.config_id.startswith("bounded-investigation"):
+        model = HeuristicWorkflowModel()
+        baseline = BoundedInvestigationBaseline(Path.cwd())
+    elif config.config_id.startswith("single-retrieval"):
+        model = HeuristicWorkflowModel()
+        baseline = SingleRetrievalBaseline(Path.cwd())
+    elif config.config_id.startswith("minimal-workflow"):
+        model = HeuristicWorkflowModel()
+        baseline = MinimalWorkflowBaseline()
+    else:
+        model = StubModel()
+        baseline = DirectPromptBaseline()
     if args.dsn:
         store = PostgresRunStore.from_dsn(args.dsn)
     else:
         store = InMemoryRunStore()
-    runs = BaselineRunner(dataset, config, model, store).run()
+    runs = BaselineRunner(dataset, config, model, store, baseline=baseline).run()
     report = build_report(dataset, config, runs)
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)

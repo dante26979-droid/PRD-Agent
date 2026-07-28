@@ -1,0 +1,120 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: prd_agent
+      POSTGRES_USER: prd_agent
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U prd_agent -d prd_agent"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:8-alpine
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  migrate:
+    build:
+      context: ../..
+      dockerfile: infra/production/Dockerfile
+    command: ["prd-agent-migrate"]
+    environment:
+      PRD_AGENT_DATABASE_DSN_FILE: /run/secrets/database_dsn
+    secrets:
+      - database_dsn
+    depends_on:
+      postgres:
+        condition: service_healthy
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+  api:
+    build:
+      context: ../..
+      dockerfile: infra/production/Dockerfile
+    environment: &application-environment
+      PRD_AGENT_ENVIRONMENT: production
+      PRD_AGENT_DATABASE_DSN_FILE: /run/secrets/database_dsn
+      PRD_AGENT_BROKER_URL: redis://redis:6379/0
+      PRD_AGENT_OIDC_ISSUER: ${PRD_AGENT_OIDC_ISSUER:?required}
+      PRD_AGENT_OIDC_AUDIENCE: ${PRD_AGENT_OIDC_AUDIENCE:?required}
+      PRD_AGENT_OIDC_JWKS_URL: ${PRD_AGENT_OIDC_JWKS_URL:?required}
+      PRD_AGENT_CORS_ORIGINS: ${PRD_AGENT_CORS_ORIGINS:?required}
+    secrets:
+      - database_dsn
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,noexec,nosuid
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    ports:
+      - "8000:8000"
+
+  outbox-publisher:
+    build:
+      context: ../..
+      dockerfile: infra/production/Dockerfile
+    command: ["prd-agent-publisher", "--interval", "1"]
+    environment: *application-environment
+    secrets:
+      - database_dsn
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+  scheduler-reconciler:
+    build:
+      context: ../..
+      dockerfile: infra/production/Dockerfile
+    command: ["prd-agent-scheduler", "--interval", "5"]
+    environment: *application-environment
+    secrets:
+      - database_dsn
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+secrets:
+  postgres_password:
+    file: ./secrets/postgres_password.txt
+  database_dsn:
+    file: ./secrets/database_dsn.txt
+
+volumes:
+  postgres-data:
+  redis-data:
