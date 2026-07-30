@@ -138,6 +138,10 @@ services:
   go-capability:
     image: prd-agent-go-control-plane:${PRD_AGENT_IMAGE_TAG:-local}
     build: *go-build
+    # Git can spawn transport helpers. If a timed-out helper outlives its
+    # parent, Docker's init process must reap it instead of leaking zombies
+    # into the service PID budget.
+    init: true
     entrypoint: ["/app/prd-agent-go-capability"]
     environment:
       PRD_AGENT_ENVIRONMENT: production

@@ -77,3 +77,13 @@ def test_production_agent_receives_deepseek_config_and_secret_only():
     assert base_compose["secrets"]["deepseek_api_key"]["file"] == (
         "./secrets/deepseek_api_key"
     )
+
+
+def test_production_capability_uses_init_to_reap_git_helpers():
+    compose = yaml.safe_load(
+        Path("infra/production/docker-compose.go.yml").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert compose["services"]["go-capability"]["init"] is True
