@@ -109,3 +109,62 @@ func TestMemoryStoreRejectsIdempotencyKeyReuseWithDifferentMessage(t *testing.T)
 		t.Fatalf("expected idempotency conflict, got %v", err)
 	}
 }
+
+func TestMemoryStoreRejectsNewTaskWhenWaitingQueueIsFull(t *testing.T) {
+	store := NewMemoryStore(QueuePolicy{
+		MaxGlobalRunnable:   1,
+		MaxRunnablePerOwner: 1,
+		MaxWaitingRuns:      1,
+	})
+	if _, err := store.CreateTaskWithRun(context.Background(), "tenant", "alice", "first", "one"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CreateTaskWithRun(context.Background(), "tenant", "bob", "second", "two"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CreateTaskWithRun(context.Background(), "tenant", "carol", "third", "three"); err != ErrCapacityExhausted {
+		t.Fatalf("expected capacity rejection, got %v", err)
+	}
+	tasks, err := store.ListTasks(context.Background(), "tenant", "carol", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 0 {
+		t.Fatalf("capacity rejection left a partial task: %+v", tasks)
+	}
+}
+
+func TestMemoryStorePromotesLeastRecentlyScheduledOwner(t *testing.T) {
+	store := NewMemoryStore(QueuePolicy{
+		MaxGlobalRunnable:   1,
+		MaxRunnablePerOwner: 1,
+		MaxWaitingRuns:      10,
+	})
+	now := time.Now().UTC()
+	aliceActive, err := store.CreateTaskWithRun(context.Background(), "tenant", "alice", "alice active", "alice-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	aliceWaiting, err := store.CreateTaskWithRun(context.Background(), "tenant", "alice", "alice waiting", "alice-2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bobWaiting, err := store.CreateTaskWithRun(context.Background(), "tenant", "bob", "bob waiting", "bob-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lease, err := store.AcquireRun(context.Background(), aliceActive.Run.RunID, "worker", now, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CompleteRun(context.Background(), leaseFromRun(lease), RunSucceeded, now.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	promoted, err := store.PromoteWaiting(context.Background(), now.Add(2*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(promoted) != 1 || promoted[0].RunID != bobWaiting.Run.RunID {
+		t.Fatalf("expected bob to be promoted before previously scheduled alice; got %+v (alice=%s)", promoted, aliceWaiting.Run.RunID)
+	}
+}

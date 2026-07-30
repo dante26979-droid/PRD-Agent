@@ -1,6 +1,9 @@
 import threading
 import time
 
+import grpc
+import pytest
+
 from agent.v1 import agent_execution_pb2 as execution
 from agent.v1 import agent_worker_pb2 as worker
 from agent.result import AgentResult
@@ -14,11 +17,32 @@ class ActiveContext:
     def abort(self, code, details):
         raise AssertionError(f"unexpected gRPC abort: {code} {details}")
 
+    def invocation_metadata(self):
+        return ()
+
+
+class AuthenticatedContext(ActiveContext):
+    def __init__(self, token):
+        self.token = token
+
+    def invocation_metadata(self):
+        return (("authorization", f"Bearer {self.token}"),)
+
+
+class Aborted(RuntimeError):
+    def __init__(self, code):
+        self.code = code
+
+
+class RejectingContext(AuthenticatedContext):
+    def abort(self, code, details):
+        raise Aborted(code)
+
 
 def _request(dispatch_id="dispatch-1", worker_id="worker-a"):
     return worker.ExecuteRunRequest(
         meta=execution.RequestMeta(
-            contract_version="agent-execution.v1",
+            contract_version="agent-execution.v2",
             request_id="request-1",
             correlation_id="run-1",
         ),
@@ -91,6 +115,18 @@ def test_worker_server_streams_agent_progress_to_go_client():
     assert responses[4].draft_key == "draft-1"
 
 
+def test_worker_server_rejects_missing_or_invalid_service_identity():
+    servicer = AgentWorkerServer(
+        lambda context: None,
+        worker_id="worker-a",
+        service_token="service-token-with-at-least-32-bytes",
+    )
+    for token in ("", "wrong-token"):
+        with pytest.raises(Aborted) as captured:
+            list(servicer.ExecuteRun(_request(), RejectingContext(token)))
+        assert captured.value.code == grpc.StatusCode.UNAUTHENTICATED
+
+
 def test_worker_server_cancel_emits_retry_safe_failed_terminal_event():
     started = threading.Event()
 
@@ -116,7 +152,7 @@ def test_worker_server_cancel_emits_retry_safe_failed_terminal_event():
     cancelled = servicer.CancelRun(
         worker.CancelRunRequest(
             meta=execution.RequestMeta(
-                contract_version="agent-execution.v1", request_id="cancel-1", correlation_id="run-1"
+                contract_version="agent-execution.v2", request_id="cancel-1", correlation_id="run-1"
             ),
             dispatch_id="dispatch-1",
             run_id="run-1",
@@ -155,7 +191,7 @@ def test_worker_server_propagates_versioned_context_and_trace_metadata():
     health = servicer.Health(
         worker.HealthRequest(
             meta=execution.RequestMeta(
-                contract_version="agent-execution.v1",
+                contract_version="agent-execution.v2",
                 request_id="health-1",
                 correlation_id="health-1",
             ),
@@ -166,7 +202,7 @@ def test_worker_server_propagates_versioned_context_and_trace_metadata():
 
     assert captured["context"].task_version == 3
     assert all(item.occurred_at for item in responses)
-    assert all(item.contract_version == "agent-execution.v1" for item in responses)
+    assert all(item.contract_version == "agent-execution.v2" for item in responses)
     assert all(item.correlation_id == "run-1" for item in responses)
     assert health.model_ready is True
     assert health.capability_ready is False
@@ -228,3 +264,66 @@ def test_worker_server_streams_each_model_attempt_in_order():
     attempts = [item.model_attempt.operation for item in responses if item.event_type == "MODEL_ATTEMPT"]
 
     assert attempts == ["plan_investigation", "generate_working_draft"]
+
+
+def test_worker_server_waits_for_durable_event_ack_before_advancing():
+    servicer = AgentWorkerServer(
+        lambda context: AgentResult(
+            attempt=execution.RecordModelAttemptRequest(
+                attempt_key="attempt-1",
+                operation="draft",
+                request_hash="hash-1",
+                status="SUCCEEDED",
+            )
+        ),
+        worker_id="worker-a",
+        event_ack_timeout_seconds=1,
+    )
+    responses = []
+    finished = threading.Event()
+
+    def consume():
+        try:
+            for event in servicer.ExecuteRun(_request(), ActiveContext()):
+                responses.append(event)
+        finally:
+            finished.set()
+
+    thread = threading.Thread(target=consume)
+    thread.start()
+    deadline = time.time() + 1
+    while len(responses) < 1 and time.time() < deadline:
+        time.sleep(0.005)
+    assert len(responses) == 1
+    time.sleep(0.02)
+    assert len(responses) == 1
+
+    acknowledged = 0
+    while not finished.is_set():
+        while acknowledged < len(responses):
+            event = responses[acknowledged]
+            receipt = servicer.AcknowledgeEvent(
+                worker.AcknowledgeEventRequest(
+                    meta=execution.RequestMeta(
+                        contract_version="agent-execution.v2",
+                        request_id=f"ack-{event.event_sequence}",
+                        correlation_id="run-1",
+                    ),
+                    dispatch_id=event.dispatch_id,
+                    run_id=event.run_id,
+                    event_id=event.event_id,
+                    event_sequence=event.event_sequence,
+                    committed_sequence=event.event_sequence,
+                    worker_id="worker-a",
+                ),
+                ActiveContext(),
+            )
+            assert receipt.accepted is True
+            acknowledged += 1
+        time.sleep(0.005)
+    thread.join(timeout=1)
+    assert [item.event_type for item in responses] == [
+        "RUN_STARTED",
+        "MODEL_ATTEMPT",
+        "RUN_COMPLETED",
+    ]

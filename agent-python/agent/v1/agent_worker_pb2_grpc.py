@@ -41,6 +41,11 @@ class AgentWorkerServiceStub:
                 request_serializer=agent_dot_v1_dot_agent__worker__pb2.ExecuteRunRequest.SerializeToString,
                 response_deserializer=agent_dot_v1_dot_agent__worker__pb2.ExecuteRunResponse.FromString,
                 _registered_method=True)
+        self.AcknowledgeEvent = channel.unary_unary(
+                '/agent.v1.AgentWorkerService/AcknowledgeEvent',
+                request_serializer=agent_dot_v1_dot_agent__worker__pb2.AcknowledgeEventRequest.SerializeToString,
+                response_deserializer=agent_dot_v1_dot_agent__worker__pb2.AcknowledgeEventResponse.FromString,
+                _registered_method=True)
         self.CancelRun = channel.unary_unary(
                 '/agent.v1.AgentWorkerService/CancelRun',
                 request_serializer=agent_dot_v1_dot_agent__worker__pb2.CancelRunRequest.SerializeToString,
@@ -59,6 +64,12 @@ class AgentWorkerServiceServicer:
     """
 
     def ExecuteRun(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def AcknowledgeEvent(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -83,6 +94,11 @@ def add_AgentWorkerServiceServicer_to_server(servicer, server):
                     servicer.ExecuteRun,
                     request_deserializer=agent_dot_v1_dot_agent__worker__pb2.ExecuteRunRequest.FromString,
                     response_serializer=agent_dot_v1_dot_agent__worker__pb2.ExecuteRunResponse.SerializeToString,
+            ),
+            'AcknowledgeEvent': grpc.unary_unary_rpc_method_handler(
+                    servicer.AcknowledgeEvent,
+                    request_deserializer=agent_dot_v1_dot_agent__worker__pb2.AcknowledgeEventRequest.FromString,
+                    response_serializer=agent_dot_v1_dot_agent__worker__pb2.AcknowledgeEventResponse.SerializeToString,
             ),
             'CancelRun': grpc.unary_unary_rpc_method_handler(
                     servicer.CancelRun,
@@ -124,6 +140,33 @@ class AgentWorkerService:
             '/agent.v1.AgentWorkerService/ExecuteRun',
             agent_dot_v1_dot_agent__worker__pb2.ExecuteRunRequest.SerializeToString,
             agent_dot_v1_dot_agent__worker__pb2.ExecuteRunResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def AcknowledgeEvent(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/agent.v1.AgentWorkerService/AcknowledgeEvent',
+            agent_dot_v1_dot_agent__worker__pb2.AcknowledgeEventRequest.SerializeToString,
+            agent_dot_v1_dot_agent__worker__pb2.AcknowledgeEventResponse.FromString,
             options,
             channel_credentials,
             insecure,

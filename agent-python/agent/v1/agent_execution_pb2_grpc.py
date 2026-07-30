@@ -59,6 +59,11 @@ class AgentExecutionServiceStub:
                 request_serializer=agent_dot_v1_dot_agent__execution__pb2.AppendEvidenceRequest.SerializeToString,
                 response_deserializer=agent_dot_v1_dot_agent__execution__pb2.AppendEvidenceResponse.FromString,
                 _registered_method=True)
+        self.SaveRunArtifact = channel.unary_unary(
+                '/agent.v1.AgentExecutionService/SaveRunArtifact',
+                request_serializer=agent_dot_v1_dot_agent__execution__pb2.SaveRunArtifactRequest.SerializeToString,
+                response_deserializer=agent_dot_v1_dot_agent__execution__pb2.SaveRunArtifactResponse.FromString,
+                _registered_method=True)
         self.SaveCheckpoint = channel.unary_unary(
                 '/agent.v1.AgentExecutionService/SaveCheckpoint',
                 request_serializer=agent_dot_v1_dot_agent__execution__pb2.SaveCheckpointRequest.SerializeToString,
@@ -109,6 +114,12 @@ class AgentExecutionServiceServicer:
         raise NotImplementedError('Method not implemented!')
 
     def AppendEvidence(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def SaveRunArtifact(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -165,6 +176,11 @@ def add_AgentExecutionServiceServicer_to_server(servicer, server):
                     servicer.AppendEvidence,
                     request_deserializer=agent_dot_v1_dot_agent__execution__pb2.AppendEvidenceRequest.FromString,
                     response_serializer=agent_dot_v1_dot_agent__execution__pb2.AppendEvidenceResponse.SerializeToString,
+            ),
+            'SaveRunArtifact': grpc.unary_unary_rpc_method_handler(
+                    servicer.SaveRunArtifact,
+                    request_deserializer=agent_dot_v1_dot_agent__execution__pb2.SaveRunArtifactRequest.FromString,
+                    response_serializer=agent_dot_v1_dot_agent__execution__pb2.SaveRunArtifactResponse.SerializeToString,
             ),
             'SaveCheckpoint': grpc.unary_unary_rpc_method_handler(
                     servicer.SaveCheckpoint,
@@ -322,6 +338,33 @@ class AgentExecutionService:
             '/agent.v1.AgentExecutionService/AppendEvidence',
             agent_dot_v1_dot_agent__execution__pb2.AppendEvidenceRequest.SerializeToString,
             agent_dot_v1_dot_agent__execution__pb2.AppendEvidenceResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def SaveRunArtifact(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/agent.v1.AgentExecutionService/SaveRunArtifact',
+            agent_dot_v1_dot_agent__execution__pb2.SaveRunArtifactRequest.SerializeToString,
+            agent_dot_v1_dot_agent__execution__pb2.SaveRunArtifactResponse.FromString,
             options,
             channel_credentials,
             insecure,

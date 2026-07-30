@@ -11,7 +11,7 @@ import (
 
 func main() {
 	logger := slog.Default()
-	cfg, err := config.Load()
+	cfg, err := config.LoadFor("migrate")
 	if err != nil {
 		logger.Error("load config", "error", err)
 		os.Exit(1)

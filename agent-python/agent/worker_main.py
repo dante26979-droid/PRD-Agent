@@ -22,11 +22,21 @@ def serve(
     max_workers: int | None = None,
     max_checkpoint_bytes: int = 256 * 1024,
     max_draft_bytes: int = 1024 * 1024,
+    max_run_artifact_bytes: int = 1024 * 1024,
     max_evidence_items: int = 100,
     model_ready: bool = True,
     capability_ready: bool = False,
+    service_token: str | None = None,
+    event_ack_timeout_seconds: float = 30,
 ) -> None:
-    server = grpc.server(futures.ThreadPoolExecutor(max_workers=max_workers or max_inflight))
+    server = grpc.server(
+        futures.ThreadPoolExecutor(
+            max_workers=_rpc_worker_count(
+                max_inflight=max_inflight,
+                configured=max_workers,
+            )
+        )
+    )
     worker_rpc.add_AgentWorkerServiceServicer_to_server(
         AgentWorkerServer(
             loop,
@@ -34,9 +44,12 @@ def serve(
             max_inflight=max_inflight,
             max_checkpoint_bytes=max_checkpoint_bytes,
             max_draft_bytes=max_draft_bytes,
+            max_run_artifact_bytes=max_run_artifact_bytes,
             max_evidence_items=max_evidence_items,
             model_ready=model_ready,
             capability_ready=capability_ready,
+            service_token=service_token,
+            event_ack_timeout_seconds=event_ack_timeout_seconds,
         ),
         server,
     )
@@ -59,6 +72,18 @@ def load_loop(spec: str):
     return factory() if callable(factory) else factory
 
 
+def _rpc_worker_count(*, max_inflight: int, configured: int | None) -> int:
+    minimum = max_inflight + 2
+    if configured is None:
+        return minimum
+    if configured < minimum:
+        raise ValueError(
+            "max_workers must reserve at least two threads beyond max_inflight "
+            "for cancellation and health RPCs"
+        )
+    return configured
+
+
 def _bind_endpoint(endpoint: str) -> str:
     if endpoint.startswith(":"):
         return "0.0.0.0" + endpoint
@@ -78,7 +103,7 @@ def main() -> None:
         ),
     )
     args = parser.parse_args()
-    settings = AgentSettings.load()
+    settings = AgentSettings.load(require_service_identity=True)
     serve(
         load_loop(args.loop_factory),
         endpoint=_bind_endpoint(args.endpoint),
@@ -86,9 +111,12 @@ def main() -> None:
         max_inflight=args.max_inflight,
         max_checkpoint_bytes=settings.max_checkpoint_bytes,
         max_draft_bytes=settings.max_draft_bytes,
+        max_run_artifact_bytes=settings.max_run_artifact_bytes,
         max_evidence_items=settings.max_evidence_items,
         model_ready=True,
         capability_ready=settings.capability_target is not None,
+        service_token=settings.service_token,
+        event_ack_timeout_seconds=settings.event_ack_timeout_seconds,
     )
 
 

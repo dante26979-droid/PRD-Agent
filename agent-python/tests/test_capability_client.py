@@ -58,6 +58,12 @@ class FakeCapabilityStub:
         )
 
 
+class MetadataCapabilityStub(FakeCapabilityStub):
+    def SearchRepository(self, request, timeout=None, metadata=None):
+        self.metadata = metadata
+        return super().SearchRepository(request, timeout=timeout)
+
+
 def test_capability_client_binds_repository_search_to_current_lease():
     stub = FakeCapabilityStub()
     client = CapabilityGatewayClient(
@@ -113,6 +119,27 @@ def test_capability_client_rejects_oversized_repository_content():
         assert getattr(error, "retryable", True) is False
     else:
         raise AssertionError("oversized capability content must be rejected")
+
+
+def test_capability_client_sends_internal_service_identity():
+    stub = MetadataCapabilityStub()
+    client = CapabilityGatewayClient(
+        stub,
+        CapabilitySession(
+            lease=Lease("run-1", "lease-1", "worker-1", 1, "2030-01-01T00:00:00Z"),
+            request_id_prefix="dispatch-1",
+            correlation_id="run-1",
+        ),
+        service_token="s" * 32,
+    )
+
+    client.search_repository(
+        binding_id="binding-1",
+        revision="a" * 40,
+        query="dispatcher",
+    )
+
+    assert stub.metadata == (("authorization", "Bearer " + ("s" * 32)),)
 
 
 def test_capability_client_fetches_catalog_candidates_then_source_sections():

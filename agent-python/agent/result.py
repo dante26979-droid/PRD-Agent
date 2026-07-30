@@ -7,7 +7,7 @@ from agent.v1 import agent_execution_pb2 as proto
 
 @dataclass(frozen=True)
 class AgentResult:
-    attempt: proto.RecordModelAttemptRequest
+    attempt: proto.RecordModelAttemptRequest | None = None
     additional_attempts: tuple[proto.RecordModelAttemptRequest, ...] = ()
     evidence: tuple[proto.EvidenceItem, ...] = ()
     checkpoint_sequence: int | None = None

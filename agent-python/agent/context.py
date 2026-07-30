@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING, Callable
 
 from agent.v1 import agent_execution_pb2 as proto
+
+if TYPE_CHECKING:
+    from agent.runtime import RuntimeEventSink
 
 
 @dataclass(frozen=True)
@@ -38,3 +42,9 @@ class RunContext:
     lease: Lease | None = None
     repository_binding_id: str = ""
     repository_revision: str = ""
+    resume_evidence: tuple[proto.EvidenceItem, ...] = ()
+    resume_artifacts: tuple[proto.RunArtifact, ...] = ()
+    revision_scope: proto.RevisionScope | None = None
+    resume_draft: proto.SubmittedDraftReceipt | None = None
+    plan_model_attempt: Callable[[proto.RecordModelAttemptRequest], None] | None = None
+    event_sink: RuntimeEventSink | None = None

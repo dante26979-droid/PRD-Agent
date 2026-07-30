@@ -77,6 +77,29 @@ func TestPoolExecutesThroughWorkerSlot(t *testing.T) {
 	}
 }
 
+func TestReservationStreamsEventsToCommitHandler(t *testing.T) {
+	client := &fakeClient{events: []*agentv1.ExecuteRunResponse{{EventType: "RUN_STARTED"}, {EventType: "RUN_COMPLETED"}}}
+	pool, err := NewPool([]ClientSlot{{WorkerID: "worker-a", Client: client, MaxInflight: 1}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reservation, err := pool.Reserve("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reservation.Release()
+	var committed []string
+	if err := reservation.Stream(context.Background(), &agentv1.ExecuteRunRequest{DispatchId: "dispatch-1", RunId: "run-1"}, func(event *agentv1.ExecuteRunResponse) error {
+		committed = append(committed, event.EventType)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(committed) != 2 || committed[0] != "RUN_STARTED" || committed[1] != "RUN_COMPLETED" {
+		t.Fatalf("events were not streamed in order: %v", committed)
+	}
+}
+
 func TestPoolRejectsExecutionWhenWorkerIsAtCapacity(t *testing.T) {
 	release := make(chan struct{})
 	client := &fakeClient{started: make(chan struct{}), block: release, events: []*agentv1.ExecuteRunResponse{{EventType: "RUN_COMPLETED"}}}

@@ -3,9 +3,11 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -19,7 +21,14 @@ import (
 
 func main() {
 	logger := slog.Default()
-	cfg, err := config.Load()
+	if len(os.Args) == 2 && os.Args[1] == "healthcheck" {
+		if err := runHealthcheck(); err != nil {
+			logger.Error("maintenance healthcheck failed", "error", err)
+			os.Exit(1)
+		}
+		return
+	}
+	cfg, err := config.LoadFor("maintenance")
 	if err != nil {
 		logger.Error("load config", "error", err)
 		os.Exit(1)
@@ -31,6 +40,8 @@ func main() {
 	postgres, err := storage.NewPostgresStore(context.Background(), storage.Config{
 		DSN: cfg.DatabaseDSN, MinConns: 1, MaxConns: cfg.DatabasePoolMax,
 		MaxGlobalRunnable: cfg.MaxGlobalRunnable, MaxRunnablePerOwner: cfg.MaxRunnablePerOwner,
+		MaxWaitingRuns:      cfg.MaxWaitingRuns,
+		RepositoryBindingID: cfg.FixedRepositoryBindingID, RepositoryRevision: cfg.FixedRepositoryRevision,
 	})
 	if err != nil {
 		logger.Error("connect database", "error", err)
@@ -58,7 +69,7 @@ func main() {
 			os.Exit(1)
 		}
 		connectCtx, cancel := context.WithTimeout(context.Background(), cfg.AgentRPCConnectTimeout)
-		pool, err = agentpool.NewGRPCPool(connectCtx, cfg.AgentWorkerEndpoints, cfg.AgentRPCMaxInflight)
+		pool, err = agentpool.NewGRPCPool(connectCtx, cfg.AgentWorkerEndpoints, cfg.AgentRPCMaxInflight, cfg.AgentRPCToken)
 		cancel()
 		if err != nil {
 			logger.Error("connect agent worker pool", "error", err)
@@ -77,11 +88,88 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	logger.Info("go maintenance started", "interval", cfg.MaintenanceInterval)
-	ticker := time.NewTicker(cfg.MaintenanceInterval)
+	jobs := map[string]maintenanceJob{
+		"admission": func(ctx context.Context) error {
+			_, err := postgres.PromoteWaiting(ctx, time.Now().UTC())
+			return err
+		},
+	}
+	if publisher != nil {
+		jobs["outbox"] = func(ctx context.Context) error {
+			return publishOutbox(ctx, postgres, publisher, logger)
+		}
+	}
+	if agentDispatcher != nil {
+		jobs["agent-dispatch"] = func(ctx context.Context) error {
+			report, err := agentDispatcher.DispatchOnce(ctx)
+			if err == nil && (report.Processed > 0 || report.Saturated > 0) {
+				logger.Info("direct agent dispatch cycle", "processed", report.Processed, "succeeded", report.Succeeded, "failed", report.Failed, "unknown", report.Unknown, "saturated", report.Saturated)
+			}
+			return err
+		}
+		jobs["agent-cancel"] = func(ctx context.Context) error {
+			return agentDispatcher.CancelStopping(ctx, 10)
+		}
+		jobs["agent-recovery"] = func(ctx context.Context) error {
+			report, err := agentDispatcher.RecoverUnknown(ctx, 10)
+			if err == nil && report.Processed > 0 {
+				logger.Info("direct agent recovery cycle", "processed", report.Processed, "succeeded", report.Succeeded, "failed", report.Failed, "unknown", report.Unknown)
+			}
+			return err
+		}
+	}
+	runMaintenanceJobs(ctx, cfg.MaintenanceInterval, jobs, logger)
+	if pool != nil {
+		drainCtx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
+		defer cancel()
+		if err := pool.Drain(drainCtx); err != nil {
+			logger.Error("agent pool drain deadline exceeded", "error", err)
+		}
+	}
+}
+
+func runHealthcheck() error {
+	cfg, err := config.LoadFor("maintenance")
+	if err != nil {
+		return err
+	}
+	if cfg.DatabaseDSN == "" {
+		return errors.New("database DSN is required")
+	}
+	store, err := storage.NewPostgresStore(context.Background(), storage.Config{
+		DSN: cfg.DatabaseDSN, MinConns: 1, MaxConns: 1,
+		MaxGlobalRunnable: cfg.MaxGlobalRunnable, MaxRunnablePerOwner: cfg.MaxRunnablePerOwner,
+		MaxWaitingRuns:      cfg.MaxWaitingRuns,
+		RepositoryBindingID: cfg.FixedRepositoryBindingID, RepositoryRevision: cfg.FixedRepositoryRevision,
+	})
+	if err != nil {
+		return err
+	}
+	defer store.Close()
+	return store.Health(context.Background())
+}
+
+type maintenanceJob func(context.Context) error
+
+func runMaintenanceJobs(ctx context.Context, interval time.Duration, jobs map[string]maintenanceJob, logger *slog.Logger) {
+	var group sync.WaitGroup
+	for name, job := range jobs {
+		name, job := name, job
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			runMaintenanceJob(ctx, interval, name, job, logger)
+		}()
+	}
+	group.Wait()
+}
+
+func runMaintenanceJob(ctx context.Context, interval time.Duration, name string, job maintenanceJob, logger *slog.Logger) {
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
-		if err := reconcile(ctx, postgres, publisher, agentDispatcher, logger); err != nil {
-			logger.Error("maintenance cycle failed", "error", err)
+		if err := invokeMaintenanceJob(ctx, job); err != nil && ctx.Err() == nil {
+			logger.Error("maintenance job failed", "job", name, "error", err)
 		}
 		select {
 		case <-ctx.Done():
@@ -91,28 +179,16 @@ func main() {
 	}
 }
 
-func reconcile(ctx context.Context, store *storage.PostgresStore, publisher *transport.RedisStreamPublisher, agentDispatcher *dispatcher.Dispatcher, logger *slog.Logger) error {
-	if _, err := store.PromoteWaiting(ctx, time.Now().UTC()); err != nil {
-		return err
-	}
-	if agentDispatcher != nil {
-		if err := agentDispatcher.CancelStopping(ctx, 10); err != nil {
-			logger.Error("direct agent cancellation failed", "error", err)
+func invokeMaintenanceJob(ctx context.Context, job maintenanceJob) (err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = fmt.Errorf("panic recovered: %v", recovered)
 		}
-		if report, err := agentDispatcher.DispatchOnce(ctx); err != nil {
-			logger.Error("direct agent dispatch failed", "error", err)
-		} else if report.Processed > 0 || report.Saturated > 0 {
-			logger.Info("direct agent dispatch cycle", "processed", report.Processed, "succeeded", report.Succeeded, "failed", report.Failed, "unknown", report.Unknown, "saturated", report.Saturated)
-		}
-		if report, err := agentDispatcher.RecoverUnknown(ctx, 10); err != nil {
-			logger.Error("direct agent recovery failed", "error", err)
-		} else if report.Processed > 0 {
-			logger.Info("direct agent recovery cycle", "processed", report.Processed, "succeeded", report.Succeeded, "failed", report.Failed, "unknown", report.Unknown)
-		}
-	}
-	if publisher == nil {
-		return nil
-	}
+	}()
+	return job(ctx)
+}
+
+func publishOutbox(ctx context.Context, store *storage.PostgresStore, publisher *transport.RedisStreamPublisher, logger *slog.Logger) error {
 	messages, err := store.ClaimOutbox(ctx, 100, time.Now().UTC())
 	if err != nil {
 		return err

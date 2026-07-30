@@ -14,6 +14,7 @@ import (
 	agentv1 "github.com/dante26979-droid/prd-agent/contracts/gen/go/agent/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -29,6 +30,10 @@ type EventStream interface {
 
 type WorkerClient interface {
 	Execute(ctx context.Context, request *agentv1.ExecuteRunRequest) (EventStream, error)
+}
+
+type EventAcknowledger interface {
+	Acknowledge(ctx context.Context, request *agentv1.AcknowledgeEventRequest) (bool, error)
 }
 
 type WorkerControlClient interface {
@@ -94,7 +99,7 @@ func NewPool(slots []ClientSlot) (*Pool, error) {
 
 // NewGRPCPool dials each configured Python Worker once and reuses the
 // generated gRPC ClientConn for all executions assigned to that Worker.
-func NewGRPCPool(ctx context.Context, endpoints []string, maxInflight int) (*Pool, error) {
+func NewGRPCPool(ctx context.Context, endpoints []string, maxInflight int, token string) (*Pool, error) {
 	if len(endpoints) == 0 {
 		return nil, ErrNoWorker
 	}
@@ -116,7 +121,7 @@ func NewGRPCPool(ctx context.Context, endpoints []string, maxInflight int) (*Poo
 		}
 		slots = append(slots, ClientSlot{
 			WorkerID:    fmt.Sprintf("worker-%d", index+1),
-			Client:      grpcWorkerClient{client: agentv1.NewAgentWorkerServiceClient(conn)},
+			Client:      grpcWorkerClient{client: agentv1.NewAgentWorkerServiceClient(conn), token: token},
 			MaxInflight: maxInflight,
 			Close:       conn.Close,
 		})
@@ -126,18 +131,34 @@ func NewGRPCPool(ctx context.Context, endpoints []string, maxInflight int) (*Poo
 
 type grpcWorkerClient struct {
 	client agentv1.AgentWorkerServiceClient
+	token  string
 }
 
 func (c grpcWorkerClient) Execute(ctx context.Context, request *agentv1.ExecuteRunRequest) (EventStream, error) {
-	return c.client.ExecuteRun(ctx, request)
+	return c.client.ExecuteRun(c.authorize(ctx), request)
 }
 
-func (c grpcWorkerClient) Cancel(ctx context.Context, request *agentv1.CancelRunRequest) (bool, error) {
-	response, err := c.client.CancelRun(ctx, request)
+func (c grpcWorkerClient) Acknowledge(ctx context.Context, request *agentv1.AcknowledgeEventRequest) (bool, error) {
+	response, err := c.client.AcknowledgeEvent(c.authorize(ctx), request)
 	if err != nil {
 		return false, err
 	}
 	return response.GetAccepted(), nil
+}
+
+func (c grpcWorkerClient) Cancel(ctx context.Context, request *agentv1.CancelRunRequest) (bool, error) {
+	response, err := c.client.CancelRun(c.authorize(ctx), request)
+	if err != nil {
+		return false, err
+	}
+	return response.GetAccepted(), nil
+}
+
+func (c grpcWorkerClient) authorize(ctx context.Context) context.Context {
+	if c.token == "" {
+		return ctx
+	}
+	return metadata.AppendToOutgoingContext(ctx, "authorization", "Bearer "+c.token)
 }
 
 func (p *Pool) Execute(ctx context.Context, request *agentv1.ExecuteRunRequest) (ExecutionResult, error) {
@@ -163,32 +184,68 @@ func (p *Pool) Reserve(workerID string) (*Reservation, error) {
 func (r *Reservation) WorkerID() string { return r.slot.workerID }
 
 func (r *Reservation) Execute(ctx context.Context, request *agentv1.ExecuteRunRequest) (ExecutionResult, error) {
+	result := ExecutionResult{WorkerID: r.slot.workerID, Events: make([]*agentv1.ExecuteRunResponse, 0, 8)}
+	err := r.Stream(ctx, request, func(event *agentv1.ExecuteRunResponse) error {
+		result.Events = append(result.Events, event)
+		return nil
+	})
+	if err != nil {
+		return ExecutionResult{}, err
+	}
+	return result, nil
+}
+
+// Stream delivers every Worker event to onEvent before reading the next
+// frame. A caller can therefore commit and acknowledge durable progress
+// incrementally instead of buffering the complete execution in memory.
+func (r *Reservation) Stream(ctx context.Context, request *agentv1.ExecuteRunRequest, onEvent func(*agentv1.ExecuteRunResponse) error) error {
 	if request == nil {
-		return ExecutionResult{}, fmt.Errorf("execute request is required")
+		return fmt.Errorf("execute request is required")
+	}
+	if onEvent == nil {
+		return fmt.Errorf("event handler is required")
 	}
 
 	cloned, ok := proto.Clone(request).(*agentv1.ExecuteRunRequest)
 	if !ok {
-		return ExecutionResult{}, fmt.Errorf("clone execute request")
+		return fmt.Errorf("clone execute request")
 	}
 	cloned.WorkerId = r.slot.workerID
 	stream, err := r.slot.client.Execute(ctx, cloned)
 	if err != nil {
-		return ExecutionResult{}, err
+		return err
 	}
-	result := ExecutionResult{WorkerID: r.slot.workerID, Events: make([]*agentv1.ExecuteRunResponse, 0, 8)}
 	for {
 		event, err := stream.Recv()
 		if errors.Is(err, io.EOF) {
-			return result, nil
+			return nil
 		}
 		if err != nil {
-			return ExecutionResult{}, err
+			return err
 		}
 		if event == nil {
-			return ExecutionResult{}, fmt.Errorf("agent worker returned nil event")
+			return fmt.Errorf("agent worker returned nil event")
 		}
-		result.Events = append(result.Events, event)
+		if err := onEvent(event); err != nil {
+			return err
+		}
+		if acknowledger, ok := r.slot.client.(EventAcknowledger); ok {
+			accepted, err := acknowledger.Acknowledge(ctx, &agentv1.AcknowledgeEventRequest{
+				Meta:              cloned.Meta,
+				DispatchId:        cloned.DispatchId,
+				RunId:             cloned.RunId,
+				EventId:           event.EventId,
+				EventSequence:     event.EventSequence,
+				CommittedSequence: event.EventSequence,
+				WorkerId:          r.slot.workerID,
+			})
+			if err != nil {
+				return fmt.Errorf("acknowledge committed Agent event %s: %w", event.EventId, err)
+			}
+			if !accepted {
+				return fmt.Errorf("Agent worker rejected event acknowledgement %s", event.EventId)
+			}
+		}
 	}
 }
 
@@ -264,7 +321,7 @@ func (p *Pool) Cancel(ctx context.Context, workerID, dispatchID, runID string) e
 			return fmt.Errorf("worker %s does not support cancellation", workerID)
 		}
 		accepted, err := client.Cancel(ctx, &agentv1.CancelRunRequest{
-			Meta:       &agentv1.RequestMeta{ContractVersion: "agent-execution.v1", RequestId: "cancel-" + dispatchID, CorrelationId: runID},
+			Meta:       &agentv1.RequestMeta{ContractVersion: "agent-execution.v2", RequestId: "cancel-" + dispatchID, CorrelationId: runID},
 			DispatchId: dispatchID,
 			RunId:      runID,
 			WorkerId:   workerID,

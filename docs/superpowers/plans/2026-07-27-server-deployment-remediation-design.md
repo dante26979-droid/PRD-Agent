@@ -10,6 +10,7 @@
 > LLM API 详细设计：`2026-07-28-deepseek-api-loop-design.md`
 > LLM API 自测：`2026-07-28-deepseek-api-loop-test-plan.md`
 > 最新上位设计：`2026-07-28-feishu-github-rag-queue-architecture-design.md`
+> P0闭环实施设计：`2026-07-29-p0-server-deployment-closure-design.md`
 
 > 2026-07-28 更新：本文仍用于追踪原有部署缺陷，但其中“PostgreSQL保存完整
 > PRD正文/历史Corpus”和“仅靠Celery队列控制多用户”的假设已被最新上位设计

@@ -70,6 +70,12 @@ services:
         condition: service_healthy
     ports:
       - "18080:8080"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "/app/prd-agent-go-api", "healthcheck", "http://127.0.0.1:8080/api/v1/health/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
   python-agent:
     build:
@@ -83,6 +89,18 @@ services:
       PRD_AGENT_AGENT_WORKER_ID: worker-1
       PRD_AGENT_AGENT_WORKER_MAX_INFLIGHT: "1"
       PRD_AGENT_AGENT_LOOP_FACTORY: agent.bootstrap:build_agent_loop
+      PRD_AGENT_ADVANCED_LOOP_MODE: enforce
+      PRD_AGENT_AGENT_RPC_TOKEN: prd-agent-local-rpc-token-32-bytes
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import socket; connection=socket.create_connection(('127.0.0.1',9100),2); connection.close()"
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
   go-maintenance:
     build:
@@ -99,6 +117,7 @@ services:
       PRD_AGENT_GO_AGENT_DISPATCH_MODE: go_rpc_pool
       PRD_AGENT_GO_AGENT_RPC_WORKER_ENDPOINTS: python-agent:9100
       PRD_AGENT_GO_AGENT_RPC_MAX_INFLIGHT_PER_WORKER: "1"
+      PRD_AGENT_AGENT_RPC_TOKEN: prd-agent-local-rpc-token-32-bytes
       PRD_AGENT_GO_AGENT_DISPATCH_BATCH_SIZE: "10"
       PRD_AGENT_GO_MAINTENANCE_INTERVAL_SECONDS: "1"
     depends_on:
@@ -108,6 +127,7 @@ services:
         condition: service_healthy
       python-agent:
         condition: service_started
+    restart: unless-stopped
 
 volumes:
   prd-agent-go-postgres:

@@ -18,7 +18,10 @@ import (
 	agentv1 "github.com/dante26979-droid/prd-agent/contracts/gen/go/agent/v1"
 )
 
-const contractVersion = "agent-execution.v1"
+const (
+	contractVersion             = "agent-execution.v2"
+	maxDispatchRecoveryAttempts = 3
+)
 
 type Dispatcher struct {
 	store          runcontrol.DispatchStore
@@ -136,6 +139,38 @@ func (d *Dispatcher) RecoverUnknown(ctx context.Context, limit int) (Report, err
 	}
 	report := Report{}
 	for _, previous := range dispatches {
+		current, err := d.store.GetRun(ctx, previous.RunID)
+		if err != nil {
+			if errors.Is(err, runcontrol.ErrNotFound) {
+				finished := d.now()
+				if updateErr := d.store.UpdateDispatch(ctx, previous.DispatchID, runcontrol.DispatchQuarantined, "run no longer exists", &finished); updateErr != nil {
+					return report, updateErr
+				}
+				report.Processed++
+				report.Failed++
+				continue
+			}
+			return report, err
+		}
+		if current.Status.Terminal() {
+			finished := d.now()
+			dispatchStatus := runcontrol.DispatchFailed
+			lastError := "terminal run reconciled after final event acknowledgement was lost"
+			if current.Status == runcontrol.RunSucceeded {
+				dispatchStatus = runcontrol.DispatchSucceeded
+				lastError = ""
+			}
+			if err := d.store.UpdateDispatch(ctx, previous.DispatchID, dispatchStatus, lastError, &finished); err != nil {
+				return report, err
+			}
+			report.Processed++
+			if dispatchStatus == runcontrol.DispatchSucceeded {
+				report.Succeeded++
+			} else {
+				report.Failed++
+			}
+			continue
+		}
 		reservation, err := d.pool.Reserve("")
 		if errors.Is(err, agentpool.ErrPoolSaturated) {
 			report.Saturated++
@@ -152,8 +187,46 @@ func (d *Dispatcher) RecoverUnknown(ctx context.Context, limit int) (Report, err
 			}
 			return report, err
 		}
+		finished := d.now()
+		if previous.AttemptNo >= maxDispatchRecoveryAttempts {
+			if _, err := d.store.CompleteRun(ctx, leaseFromRun(run), runcontrol.RunFailed, finished); err != nil {
+				reservation.Release()
+				return report, err
+			}
+			if err := d.store.UpdateDispatch(ctx, previous.DispatchID, runcontrol.DispatchQuarantined, "automatic recovery budget exhausted", &finished); err != nil {
+				reservation.Release()
+				return report, err
+			}
+			reservation.Release()
+			report.Processed++
+			report.Failed++
+			continue
+		}
+		hasModelAttempts, err := d.store.HasModelAttempts(ctx, previous.RunID)
+		if err != nil {
+			reservation.Release()
+			return report, err
+		}
+		if hasModelAttempts {
+			if _, err := d.store.CompleteRun(ctx, leaseFromRun(run), runcontrol.RunFailed, finished); err != nil {
+				reservation.Release()
+				return report, err
+			}
+			if err := d.store.UpdateDispatch(ctx, previous.DispatchID, runcontrol.DispatchQuarantined, "model attempt result is not safe to replay automatically; create a user retry", &finished); err != nil {
+				reservation.Release()
+				return report, err
+			}
+			reservation.Release()
+			report.Processed++
+			report.Failed++
+			continue
+		}
 		status, dispatchErr := d.dispatchLeased(ctx, reservation, run, run)
 		reservation.Release()
+		supersededAt := d.now()
+		if err := d.store.UpdateDispatch(ctx, previous.DispatchID, runcontrol.DispatchFailed, "superseded by recovery attempt", &supersededAt); err != nil {
+			return report, errors.Join(dispatchErr, err)
+		}
 		report.Processed++
 		switch status {
 		case runcontrol.DispatchSucceeded:
@@ -206,13 +279,21 @@ func (d *Dispatcher) dispatchLeased(ctx context.Context, reservation *agentpool.
 	keeper := newLeaseKeeper(d.store, lease, d.leaseTTL, d.now)
 	keeper.Start()
 	executeCtx, cancel := context.WithTimeout(ctx, d.executeTimeout)
-	result, executeErr := reservation.Execute(executeCtx, &agentv1.ExecuteRunRequest{
+	applier := newEventApplier(d, dispatch.DispatchID, run, lease)
+	executeErr := reservation.Stream(executeCtx, &agentv1.ExecuteRunRequest{
 		Meta:       &agentv1.RequestMeta{ContractVersion: contractVersion, RequestId: dispatch.DispatchID, CorrelationId: run.RunID},
 		DispatchId: dispatch.DispatchID,
 		RunId:      run.RunID,
 		Lease:      leaseToProto(lease),
 		Input:      inputToProto(input),
 		WorkerId:   reservation.WorkerID(),
+	}, func(event *agentv1.ExecuteRunResponse) error {
+		currentLease, err := keeper.Current()
+		if err != nil {
+			return err
+		}
+		applier.currentLease = currentLease
+		return applier.Apply(executeCtx, event)
 	})
 	cancel()
 	keeper.Stop()
@@ -226,7 +307,8 @@ func (d *Dispatcher) dispatchLeased(ctx context.Context, reservation *agentpool.
 	if err != nil {
 		return d.markUnknown(ctx, run, "lease unavailable: "+err.Error(), dispatch.DispatchID), err
 	}
-	status, err := d.applyEvents(ctx, dispatch.DispatchID, run, lease, result.Events)
+	applier.currentLease = lease
+	status, err := applier.Finish()
 	if err != nil {
 		return d.markUnknown(ctx, run, "apply agent events: "+err.Error(), dispatch.DispatchID), err
 	}
@@ -238,78 +320,113 @@ func (d *Dispatcher) dispatchLeased(ctx context.Context, reservation *agentpool.
 }
 
 func (d *Dispatcher) applyEvents(ctx context.Context, dispatchID string, run runcontrol.AgentRun, lease runcontrol.LeaseContext, events []*agentv1.ExecuteRunResponse) (runcontrol.DispatchStatus, error) {
-	if len(events) == 0 {
-		return runcontrol.DispatchUnknown, fmt.Errorf("agent returned no events")
-	}
-	currentLease := lease
-	expectedSequence := int64(1)
-	terminal := false
-	terminalStatus := runcontrol.DispatchUnknown
+	applier := newEventApplier(d, dispatchID, run, lease)
 	for _, event := range events {
-		if event == nil || event.DispatchId != dispatchID || event.RunId != run.RunID || event.EventId == "" || event.EventSequence != expectedSequence {
-			return runcontrol.DispatchUnknown, fmt.Errorf("invalid agent event sequence")
-		}
-		payload, _ := json.Marshal(map[string]any{"event_id": event.EventId, "run_id": event.RunId, "event_type": event.EventType, "event_sequence": event.EventSequence})
-		if _, err := d.store.AppendTaskEvent(ctx, run.TenantID, run.OwnerID, run.TaskID, "agent."+event.EventType, payload); err != nil {
+		if err := applier.Apply(ctx, event); err != nil {
 			return runcontrol.DispatchUnknown, err
 		}
-		switch event.EventType {
-		case "RUN_STARTED":
-		case "MODEL_ATTEMPT":
-			if event.ModelAttempt == nil {
-				return runcontrol.DispatchUnknown, fmt.Errorf("model attempt payload is required")
-			}
-			_, err := d.store.RecordModelAttempt(ctx, currentLease, runcontrol.ModelAttempt{AttemptKey: event.ModelAttempt.AttemptKey, Operation: event.ModelAttempt.Operation, PromptVersion: event.ModelAttempt.PromptVersion, Provider: event.ModelAttempt.Provider, RequestHash: event.ModelAttempt.RequestHash, Status: event.ModelAttempt.Status, ResponseMetadataJSON: event.ModelAttempt.ResponseMetadataJson, TokenUsageJSON: event.ModelAttempt.TokenUsageJson, ErrorCategory: event.ModelAttempt.ErrorCategory})
-			if err != nil {
-				return runcontrol.DispatchUnknown, err
-			}
-		case "EVIDENCE_APPENDED":
-			items := make([]runcontrol.EvidenceItem, 0, len(event.EvidenceItems))
-			for _, item := range event.EvidenceItems {
-				items = append(items, runcontrol.EvidenceItem{SourceType: item.SourceType, SourceID: item.SourceId, Locator: item.Locator, ExcerptHash: item.ExcerptHash, Excerpt: item.Excerpt})
-			}
-			if _, err := d.store.AppendEvidence(ctx, currentLease, items); err != nil {
-				return runcontrol.DispatchUnknown, err
-			}
-		case "CHECKPOINT_SAVED":
-			if _, err := d.store.SaveCheckpoint(ctx, currentLease, event.CheckpointSequence, event.Checkpoint); err != nil {
-				return runcontrol.DispatchUnknown, err
-			}
-		case "DRAFT_SUBMITTED":
-			if _, err := d.store.SubmitDraft(ctx, currentLease, event.DraftKey, int(event.ExpectedTaskVersion), event.DraftPatch); err != nil {
-				return runcontrol.DispatchUnknown, err
-			}
-		case "RUN_COMPLETED":
-			if terminal {
-				return runcontrol.DispatchUnknown, fmt.Errorf("duplicate terminal event")
-			}
-			if _, err := d.store.CompleteRun(ctx, currentLease, runcontrol.RunSucceeded, d.now()); err != nil {
-				return runcontrol.DispatchUnknown, err
-			}
-			terminal = true
-			terminalStatus = runcontrol.DispatchSucceeded
-		case "RUN_FAILED":
-			if terminal {
-				return runcontrol.DispatchUnknown, fmt.Errorf("duplicate terminal event")
-			}
-			status := runcontrol.RunFailed
-			if event.ErrorCategory == "CANCELLED" {
-				status = runcontrol.RunStopped
-			}
-			if _, err := d.store.CompleteRun(ctx, currentLease, status, d.now()); err != nil {
-				return runcontrol.DispatchUnknown, err
-			}
-			terminal = true
-			terminalStatus = runcontrol.DispatchFailed
-		default:
-			return runcontrol.DispatchUnknown, fmt.Errorf("unsupported agent event type %q", event.EventType)
-		}
-		expectedSequence++
 	}
-	if !terminal {
+	return applier.Finish()
+}
+
+type eventApplier struct {
+	dispatcher       *Dispatcher
+	dispatchID       string
+	run              runcontrol.AgentRun
+	currentLease     runcontrol.LeaseContext
+	expectedSequence int64
+	received         int
+	terminal         bool
+	terminalStatus   runcontrol.DispatchStatus
+}
+
+func newEventApplier(dispatcher *Dispatcher, dispatchID string, run runcontrol.AgentRun, lease runcontrol.LeaseContext) *eventApplier {
+	return &eventApplier{
+		dispatcher: dispatcher, dispatchID: dispatchID, run: run,
+		currentLease: lease, expectedSequence: 1, terminalStatus: runcontrol.DispatchUnknown,
+	}
+}
+
+func (a *eventApplier) Apply(ctx context.Context, event *agentv1.ExecuteRunResponse) error {
+	if event == nil || event.DispatchId != a.dispatchID || event.RunId != a.run.RunID || event.EventId == "" || event.EventSequence != a.expectedSequence {
+		return fmt.Errorf("invalid agent event sequence")
+	}
+	if a.terminal {
+		return fmt.Errorf("event received after terminal event")
+	}
+	switch event.EventType {
+	case "RUN_STARTED":
+	case "MODEL_ATTEMPT":
+		if event.ModelAttempt == nil {
+			return fmt.Errorf("model attempt payload is required")
+		}
+		_, err := a.dispatcher.store.RecordModelAttempt(ctx, a.currentLease, runcontrol.ModelAttempt{AttemptKey: event.ModelAttempt.AttemptKey, Operation: event.ModelAttempt.Operation, PromptVersion: event.ModelAttempt.PromptVersion, Provider: event.ModelAttempt.Provider, RequestHash: event.ModelAttempt.RequestHash, Status: event.ModelAttempt.Status, ResponseMetadataJSON: event.ModelAttempt.ResponseMetadataJson, TokenUsageJSON: event.ModelAttempt.TokenUsageJson, ErrorCategory: event.ModelAttempt.ErrorCategory})
+		if err != nil {
+			return err
+		}
+	case "EVIDENCE_APPENDED":
+		items := make([]runcontrol.EvidenceItem, 0, len(event.EvidenceItems))
+		for _, item := range event.EvidenceItems {
+			items = append(items, runcontrol.EvidenceItem{SourceType: item.SourceType, SourceID: item.SourceId, Locator: item.Locator, ExcerptHash: item.ExcerptHash, Excerpt: item.Excerpt})
+		}
+		if _, err := a.dispatcher.store.AppendEvidence(ctx, a.currentLease, items); err != nil {
+			return err
+		}
+	case "RUN_ARTIFACT_SAVED":
+		if event.RunArtifact == nil {
+			return fmt.Errorf("run artifact payload is required")
+		}
+		if _, err := a.dispatcher.store.SaveRunArtifact(ctx, a.currentLease, runcontrol.RunArtifact{
+			ArtifactKey: event.RunArtifact.ArtifactKey, ArtifactType: event.RunArtifact.ArtifactType,
+			Generation: event.RunArtifact.Generation, RequestHash: event.RunArtifact.RequestHash,
+			ContentHash: event.RunArtifact.ContentHash, Content: event.RunArtifact.Content,
+		}); err != nil {
+			return err
+		}
+	case "CHECKPOINT_SAVED":
+		if _, err := a.dispatcher.store.SaveCheckpoint(ctx, a.currentLease, event.CheckpointSequence, event.Checkpoint); err != nil {
+			return err
+		}
+	case "DRAFT_SUBMITTED":
+		if _, err := a.dispatcher.store.SubmitDraft(ctx, a.currentLease, event.DraftKey, int(event.ExpectedTaskVersion), event.DraftPatch); err != nil {
+			return err
+		}
+	case "RUN_COMPLETED":
+		if _, err := a.dispatcher.store.CompleteRun(ctx, a.currentLease, runcontrol.RunSucceeded, a.dispatcher.now()); err != nil {
+			return err
+		}
+		a.terminal = true
+		a.terminalStatus = runcontrol.DispatchSucceeded
+	case "RUN_FAILED":
+		status := runcontrol.RunFailed
+		if event.ErrorCategory == "CANCELLED" {
+			status = runcontrol.RunStopped
+		}
+		if _, err := a.dispatcher.store.CompleteRun(ctx, a.currentLease, status, a.dispatcher.now()); err != nil {
+			return err
+		}
+		a.terminal = true
+		a.terminalStatus = runcontrol.DispatchFailed
+	default:
+		return fmt.Errorf("unsupported agent event type %q", event.EventType)
+	}
+	payload, _ := json.Marshal(map[string]any{"event_id": event.EventId, "run_id": event.RunId, "event_type": event.EventType, "event_sequence": event.EventSequence})
+	if _, err := a.dispatcher.store.AppendTaskEvent(ctx, a.run.TenantID, a.run.OwnerID, a.run.TaskID, "agent."+event.EventType, payload); err != nil {
+		return err
+	}
+	a.expectedSequence++
+	a.received++
+	return nil
+}
+
+func (a *eventApplier) Finish() (runcontrol.DispatchStatus, error) {
+	if a.received == 0 {
+		return runcontrol.DispatchUnknown, fmt.Errorf("agent returned no events")
+	}
+	if !a.terminal {
 		return runcontrol.DispatchUnknown, fmt.Errorf("agent stream ended without terminal event")
 	}
-	return terminalStatus, nil
+	return a.terminalStatus, nil
 }
 
 func (d *Dispatcher) markUnknown(ctx context.Context, run runcontrol.AgentRun, reason, dispatchID string) runcontrol.DispatchStatus {
@@ -333,7 +450,20 @@ func leaseToProto(lease runcontrol.LeaseContext) *agentv1.LeaseContext {
 }
 
 func inputToProto(input runcontrol.AgentRunInput) *agentv1.AgentRunInput {
-	return &agentv1.AgentRunInput{RunId: input.Run.RunID, TenantId: input.Run.TenantID, OwnerId: input.Run.OwnerID, TaskId: input.Run.TaskID, TaskMessage: input.TaskMessage, WorkflowVersion: input.WorkflowVersion, Checkpoint: input.Checkpoint, CheckpointSequence: input.CheckpointSequence, TaskVersion: int64(input.TaskVersion), RepositoryBindingId: input.RepositoryBindingID, RepositoryRevision: input.RepositoryRevision}
+	value := &agentv1.AgentRunInput{RunId: input.Run.RunID, TenantId: input.Run.TenantID, OwnerId: input.Run.OwnerID, TaskId: input.Run.TaskID, TaskMessage: input.TaskMessage, WorkflowVersion: input.WorkflowVersion, Checkpoint: input.Checkpoint, CheckpointSequence: input.CheckpointSequence, TaskVersion: int64(input.TaskVersion), RepositoryBindingId: input.RepositoryBindingID, RepositoryRevision: input.RepositoryRevision}
+	for _, item := range input.ResumeEvidence {
+		value.ResumeEvidence = append(value.ResumeEvidence, &agentv1.EvidenceItem{SourceType: item.SourceType, SourceId: item.SourceID, Locator: item.Locator, ExcerptHash: item.ExcerptHash, Excerpt: item.Excerpt})
+	}
+	for _, item := range input.ResumeArtifacts {
+		value.ResumeArtifacts = append(value.ResumeArtifacts, &agentv1.RunArtifact{ArtifactKey: item.ArtifactKey, ArtifactType: item.ArtifactType, Generation: item.Generation, RequestHash: item.RequestHash, ContentHash: item.ContentHash, Content: item.Content})
+	}
+	if input.RevisionScope.BaseDraftID != "" || len(input.RevisionScope.ReopenedUnitKeys) > 0 {
+		value.RevisionScope = &agentv1.RevisionScope{BaseDraftId: input.RevisionScope.BaseDraftID, BaseDraftHash: input.RevisionScope.BaseDraftHash, ReopenedUnitKeys: input.RevisionScope.ReopenedUnitKeys, ImmutableUnitKeys: input.RevisionScope.ImmutableUnitKeys, UserFeedback: input.RevisionScope.UserFeedback}
+	}
+	if input.ResumeDraft != nil {
+		value.ResumeDraft = &agentv1.SubmittedDraftReceipt{DraftKey: input.ResumeDraft.DraftKey, ContentHash: input.ResumeDraft.ContentHash, TaskVersion: int64(input.ResumeDraft.TaskVersion), Content: input.ResumeDraft.Content}
+	}
+	return value
 }
 
 func timePtr(value time.Time) *time.Time { return &value }

@@ -52,23 +52,28 @@ def test_local_runtime_remains_offline_when_llm_is_not_configured(
     assert runtime.client is None
 
 
-def test_production_api_receives_deepseek_config_and_secret_only():
-    compose = yaml.safe_load(
+def test_production_agent_receives_deepseek_config_and_secret_only():
+    base_compose = yaml.safe_load(
         Path("infra/production/docker-compose.yml").read_text(
             encoding="utf-8"
         )
     )
-    services = compose["services"]
-    api = services["api"]
+    agent_compose = yaml.safe_load(
+        Path("infra/production/docker-compose.go.yml").read_text(
+            encoding="utf-8"
+        )
+    )
+    services = agent_compose["services"]
+    agent = services["python-agent"]
 
-    assert api["environment"]["PRD_AGENT_LLM_PROVIDER"] == "deepseek"
+    assert agent["environment"]["PRD_AGENT_LLM_PROVIDER"] == "deepseek"
     assert (
-        api["environment"]["PRD_AGENT_LLM_API_KEY_FILE"]
+        agent["environment"]["PRD_AGENT_LLM_API_KEY_FILE"]
         == "/run/secrets/deepseek_api_key"
     )
-    assert "deepseek_api_key" in api["secrets"]
-    assert "deepseek_api_key" not in services["outbox-publisher"]["secrets"]
-    assert "deepseek_api_key" not in services["scheduler-reconciler"]["secrets"]
-    assert compose["secrets"]["deepseek_api_key"]["file"] == (
+    assert "deepseek_api_key" in agent["secrets"]
+    for service_name in ("go-api", "go-maintenance", "go-integration", "web"):
+        assert "deepseek_api_key" not in services[service_name].get("secrets", [])
+    assert base_compose["secrets"]["deepseek_api_key"]["file"] == (
         "./secrets/deepseek_api_key"
     )

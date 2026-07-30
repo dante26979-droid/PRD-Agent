@@ -69,6 +69,7 @@ class CapabilityGatewayClient:
         *,
         timeout_seconds: float = 10.0,
         max_content_bytes: int = 512 * 1024,
+        service_token: str | None = None,
     ) -> None:
         if not session.request_id_prefix or not session.correlation_id:
             raise ValueError("capability request and correlation identifiers are required")
@@ -80,6 +81,11 @@ class CapabilityGatewayClient:
         self._session = session
         self._timeout = timeout_seconds
         self._max_content_bytes = max_content_bytes
+        self._metadata = (
+            (("authorization", f"Bearer {service_token}"),)
+            if service_token
+            else None
+        )
         self._counter = count(1)
 
     @classmethod
@@ -89,6 +95,7 @@ class CapabilityGatewayClient:
         session: CapabilitySession,
         *,
         timeout_seconds: float = 10.0,
+        service_token: str | None = None,
     ) -> "CapabilityGatewayClient":
         if not target:
             raise ValueError("capability target is required")
@@ -97,6 +104,7 @@ class CapabilityGatewayClient:
             capability_rpc.CapabilityGatewayServiceStub(channel),
             session,
             timeout_seconds=timeout_seconds,
+            service_token=service_token,
         )
         client._channel = channel
         return client
@@ -237,7 +245,10 @@ class CapabilityGatewayClient:
 
     def _call(self, method, request):
         try:
-            return method(request, timeout=self._timeout)
+            kwargs = {"timeout": self._timeout}
+            if self._metadata is not None:
+                kwargs["metadata"] = self._metadata
+            return method(request, **kwargs)
         except grpc.RpcError as error:
             code = error.code().name if error.code() else "UNKNOWN"
             detail = error.details() or "capability RPC failed"

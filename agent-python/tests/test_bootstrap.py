@@ -5,7 +5,7 @@ import json
 import httpx
 import pytest
 
-from agent.bootstrap import build_agent_loop
+from agent.bootstrap import RemoteAgentLoop, build_agent_loop
 from agent.checkpoint import CheckpointCodec, CheckpointError
 from agent.capability import PrdCatalogHit, PrdSection, RepositorySearchHit
 from agent.context import Lease, RunContext
@@ -47,6 +47,21 @@ def test_production_runtime_refuses_deterministic_model_fallback(monkeypatch):
         build_agent_loop()
 
 
+def test_remote_runtime_can_roll_back_to_legacy_loop(monkeypatch, tmp_path):
+    secret = tmp_path / "llm-key"
+    secret.write_text("test-secret", encoding="utf-8")
+    monkeypatch.setenv("PRD_AGENT_ENVIRONMENT", "test")
+    monkeypatch.setenv("PRD_AGENT_AGENT_LOOP_MODE", "legacy")
+    monkeypatch.setenv("PRD_AGENT_LLM_PROVIDER", "deepseek")
+    monkeypatch.setenv("PRD_AGENT_LLM_BASE_URL", "https://api.deepseek.com")
+    monkeypatch.setenv("PRD_AGENT_LLM_MODEL", "deepseek-test")
+    monkeypatch.setenv("PRD_AGENT_LLM_API_KEY_FILE", str(secret))
+
+    loop = build_agent_loop()
+
+    assert isinstance(loop, RemoteAgentLoop)
+
+
 def test_production_runtime_uses_remote_structured_model(monkeypatch, tmp_path):
     secret = tmp_path / "llm-key"
     secret.write_text("test-secret", encoding="utf-8")
@@ -56,7 +71,11 @@ def test_production_runtime_uses_remote_structured_model(monkeypatch, tmp_path):
     monkeypatch.setenv("PRD_AGENT_LLM_MODEL", "deepseek-test")
     monkeypatch.setenv("PRD_AGENT_LLM_API_KEY_FILE", str(secret))
 
+    planned = []
+
     def respond(request: httpx.Request):
+        assert len(planned) == 1
+        assert planned[0].status == "PLANNED"
         assert request.headers["Authorization"] == "Bearer test-secret"
         return httpx.Response(
             200,
@@ -92,11 +111,13 @@ def test_production_runtime_uses_remote_structured_model(monkeypatch, tmp_path):
             task_message="生成远程模型 PRD",
             workflow_version="agent-runtime.v1",
             checkpoint=b"",
+            plan_model_attempt=planned.append,
         )
     )
 
     assert result.attempt.provider == "deepseek"
     assert result.attempt.status == "SUCCEEDED"
+    assert result.attempt.attempt_key == planned[0].attempt_key
     assert json.loads(result.attempt.token_usage_json)["total_tokens"] == 42
     assert "远程模型生成" in json.loads(result.draft_patch)["markdown"]
 
@@ -194,9 +215,11 @@ def test_remote_runtime_grounds_draft_through_capability_gateway(monkeypatch, tm
         )
     )
 
-    assert result.attempt.operation == "plan_investigation"
+    assert result.attempt.operation == "plan_or_generate_working_draft"
     assert result.additional_attempts[0].operation == "generate_working_draft"
-    assert result.evidence[0].locator == "README.md:10"
+    assert result.evidence[0].locator == (
+        "github://binding-1@" + ("a" * 40) + "/README.md#L10"
+    )
     assert "基于 Dispatcher" in json.loads(result.draft_patch)["markdown"]
 
 

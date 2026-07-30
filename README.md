@@ -13,6 +13,9 @@ The deployment target is a bounded multi-user service on 2 vCPU / 2GB RAM /
 PostgreSQL owns orchestration and retrieval metadata, and production calls a
 remote LLM only. The migration and acceptance contract is documented in
 `docs/superpowers/plans/2026-07-28-feishu-github-rag-queue-architecture-design.md`.
+The active P0 implementation scope for a small number of stable users and a
+single recoverable Agent is
+`docs/superpowers/plans/2026-07-29-agent-landing-p0-solution-design.md`.
 The active master design is
 `docs/superpowers/specs/2026-07-21-prd-agent-v1.1-design.md`; the V1.0 design is
 inactive and retained only as history.
@@ -115,42 +118,22 @@ venv/bin/python -m prd_agent.production.migrate --root infra/local
 
 ## Production profile
 
-Production startup fails closed unless OIDC and database-secret configuration
-is present. Required variables are:
+The small-user P0 profile does **not** require an identity platform. TLS ingress
+uses one Basic Auth credential per allowed user, strips caller-supplied identity
+headers, and passes an authenticated username plus a 32-byte proxy secret to
+the Go API. The API enforces an explicit user allowlist, exact Origin/Host, and
+owner isolation.
 
-```text
-PRD_AGENT_ENVIRONMENT=production
-PRD_AGENT_DATABASE_DSN_FILE=/run/secrets/database_dsn
-PRD_AGENT_BROKER_URL=redis://redis:6379/0
-PRD_AGENT_OIDC_ISSUER=https://...
-PRD_AGENT_OIDC_AUDIENCE=prd-agent-api
-PRD_AGENT_OIDC_JWKS_URL=https://.../.well-known/jwks.json
-PRD_AGENT_CORS_ORIGINS=https://your-web-origin.example
-PRD_AGENT_LLM_MODEL=deepseek-v4-pro
-```
+The production topology now includes PostgreSQL, Redis wake-up transport, Go
+API/migrations/maintenance, one Python Agent Worker, one fixed-Wiki Feishu
+Integration Worker, Next.js Web, TLS ingress, and encrypted 15-minute database
+snapshots. All model calls and the DeepSeek key stay in the Agent container.
 
-`infra/production/docker-compose.yml` currently provides the database, broker,
-migration, API, Outbox publisher and reconciler foundation. It is not yet the
-complete 2 vCPU / 2GB deployment topology: the real Agent Worker, Integration
-Worker, static Web, TLS/OIDC ingress, bounded Run Admission and Feishu-backed
-RAG migration remain deployment blockers. Create
-`infra/production/secrets/postgres_password.txt` and
-`infra/production/secrets/database_dsn.txt` outside version control before
-starting it. Containers run as non-root with dropped capabilities and a
-read-only root filesystem.
-
-The current transitional API runtime owns the bounded LLM workflow and mounts
-`infra/production/secrets/deepseek_api_key` as
-`/run/secrets/deepseek_api_key`. The target production topology moves this
-secret and all model calls to the single Agent Worker.
-
-Operational commands:
-
-```bash
-prd-agent-publisher --once
-prd-agent-scheduler --once
-prd-agent-migrate --root infra/local
-```
+Use the complete deployment and recovery procedure in
+[`infra/production/README.md`](infra/production/README.md). Production still
+fails closed until the operator supplies the domain/TLS files, generated
+service secrets, DeepSeek key, fixed Feishu Wiki target, Basic Auth file and an
+external backup directory.
 
 ## Minimal workflow
 
@@ -183,9 +166,6 @@ PRD_AGENT_TEST_DATABASE_DSN="$PRD_AGENT_DATABASE_DSN" \
 npm --prefix web run test
 npm --prefix web run typecheck
 npm --prefix web run build
-
-# Regenerate frontend API types while FastAPI is running:
-npm --prefix web run types:api
 
 PYTHONPATH=src python3 -m prd_agent.eval run-baseline \
   --manifest eval/cases/manifest.json \

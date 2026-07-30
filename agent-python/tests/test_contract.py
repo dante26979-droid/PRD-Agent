@@ -15,7 +15,7 @@ def test_agent_worker_request_round_trips_lease_and_metadata():
             fencing_token=1,
         ),
         meta=proto.RequestMeta(
-            contract_version="agent-execution.v1",
+            contract_version="agent-execution.v2",
             request_id="req-1",
             correlation_id="corr-1",
         ),
@@ -27,7 +27,7 @@ def test_agent_worker_request_round_trips_lease_and_metadata():
     assert decoded.run_id == "run-1"
     assert decoded.worker_id == "worker-1"
     assert decoded.lease.lease_id == "lease-1"
-    assert decoded.meta.contract_version == "agent-execution.v1"
+    assert decoded.meta.contract_version == "agent-execution.v2"
     assert decoded.meta.correlation_id == "corr-1"
 
 
@@ -67,7 +67,7 @@ def test_worker_event_and_capability_context_preserve_trace_metadata():
 		event_id="event-1",
 		event_type="RUN_STARTED",
 		occurred_at="2026-07-28T12:00:00Z",
-		contract_version="agent-execution.v1",
+		contract_version="agent-execution.v2",
 		correlation_id="correlation-1",
 	)
 	request = capability.SearchRepositoryRequest(
@@ -95,6 +95,6 @@ def test_worker_event_and_capability_context_preserve_trace_metadata():
 	decoded_request = capability.SearchRepositoryRequest.FromString(request.SerializeToString())
 
 	assert decoded_event.occurred_at == "2026-07-28T12:00:00Z"
-	assert decoded_event.contract_version == "agent-execution.v1"
+	assert decoded_event.contract_version == "agent-execution.v2"
 	assert decoded_event.correlation_id == "correlation-1"
 	assert decoded_request.capability.meta.request_id == "request-1"

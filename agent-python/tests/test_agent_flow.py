@@ -22,7 +22,7 @@ def test_agent_worker_runs_default_runtime_from_go_request_to_draft(monkeypatch)
     monkeypatch.delenv("PRD_AGENT_LLM_PROVIDER", raising=False)
     request = worker.ExecuteRunRequest(
         meta=execution.RequestMeta(
-            contract_version="agent-execution.v1",
+            contract_version="agent-execution.v2",
             request_id="dispatch-1",
             correlation_id="run-1",
         ),

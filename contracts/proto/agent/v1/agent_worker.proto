@@ -10,8 +10,23 @@ import "agent/v1/agent_execution.proto";
 // model/tool loop; Go remains the owner of all durable run state.
 service AgentWorkerService {
 	 rpc ExecuteRun(ExecuteRunRequest) returns (stream ExecuteRunResponse);
+	 rpc AcknowledgeEvent(AcknowledgeEventRequest) returns (AcknowledgeEventResponse);
 	 rpc CancelRun(CancelRunRequest) returns (CancelRunResponse);
 	 rpc Health(HealthRequest) returns (HealthResponse);
+}
+
+message AcknowledgeEventRequest {
+	RequestMeta meta = 1;
+	string dispatch_id = 2;
+	string run_id = 3;
+	string event_id = 4;
+	int64 event_sequence = 5;
+	int64 committed_sequence = 6;
+	string worker_id = 7;
+}
+
+message AcknowledgeEventResponse {
+	bool accepted = 1;
 }
 
 message ExecuteRunRequest {
@@ -35,6 +50,15 @@ message ModelAttemptEvent {
 	string error_category = 9;
 }
 
+message RunArtifactEvent {
+	string artifact_key = 1;
+	string artifact_type = 2;
+	int64 generation = 3;
+	string request_hash = 4;
+	string content_hash = 5;
+	bytes content = 6;
+}
+
 message ExecuteRunResponse {
 	string dispatch_id = 1;
 	string run_id = 2;
@@ -54,6 +78,7 @@ message ExecuteRunResponse {
 	string occurred_at = 16;
 	string contract_version = 17;
 	string correlation_id = 18;
+	RunArtifactEvent run_artifact = 19;
 }
 
 message CancelRunRequest {

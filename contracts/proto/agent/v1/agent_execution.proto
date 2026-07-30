@@ -10,6 +10,7 @@ service AgentExecutionService {
 	rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
 	rpc RecordModelAttempt(RecordModelAttemptRequest) returns (RecordModelAttemptResponse);
 	rpc AppendEvidence(AppendEvidenceRequest) returns (AppendEvidenceResponse);
+	rpc SaveRunArtifact(SaveRunArtifactRequest) returns (SaveRunArtifactResponse);
 	rpc SaveCheckpoint(SaveCheckpointRequest) returns (SaveCheckpointResponse);
 	rpc SubmitDraft(SubmitDraftRequest) returns (SubmitDraftResponse);
 	rpc CompleteRun(CompleteRunRequest) returns (CompleteRunResponse);
@@ -57,6 +58,10 @@ message AgentRunInput {
 	int64 task_version = 9;
 	string repository_binding_id = 10;
 	string repository_revision = 11;
+	repeated EvidenceItem resume_evidence = 12;
+	repeated RunArtifact resume_artifacts = 13;
+	RevisionScope revision_scope = 14;
+	SubmittedDraftReceipt resume_draft = 15;
 }
 
 message GetRunContextResponse { AgentRunInput input = 1; }
@@ -101,6 +106,43 @@ message EvidenceItem {
 
 message EvidenceReceipt { int64 accepted_count = 1; }
 message AppendEvidenceResponse { EvidenceReceipt receipt = 1; }
+
+message RunArtifact {
+	string artifact_key = 1;
+	string artifact_type = 2;
+	int64 generation = 3;
+	string request_hash = 4;
+	string content_hash = 5;
+	bytes content = 6;
+}
+
+message RevisionScope {
+	string base_draft_id = 1;
+	string base_draft_hash = 2;
+	repeated string reopened_unit_keys = 3;
+	repeated string immutable_unit_keys = 4;
+	string user_feedback = 5;
+}
+
+message SubmittedDraftReceipt {
+	string draft_key = 1;
+	string content_hash = 2;
+	int64 task_version = 3;
+	bytes content = 4;
+}
+
+message SaveRunArtifactRequest {
+	LeaseContext lease = 1;
+	RunArtifact artifact = 2;
+	RequestMeta meta = 3;
+}
+
+message RunArtifactReceipt {
+	string artifact_key = 1;
+	string content_hash = 2;
+}
+
+message SaveRunArtifactResponse { RunArtifactReceipt receipt = 1; }
 
 message SaveCheckpointRequest {
 	LeaseContext lease = 1;

@@ -85,6 +85,65 @@ func TestMemoryStoreModelAttemptAndEvidenceAreIdempotent(t *testing.T) {
 	}
 }
 
+func TestMemoryStoreRunArtifactIsDurableAndIdempotent(t *testing.T) {
+	store, _, lease := newLeasedMemoryRun(t)
+	content := []byte(`{"schema_version":"draft-bundle.v1"}`)
+	artifact := RunArtifact{
+		ArtifactKey:  lease.RunID + ":draft_bundle:1",
+		ArtifactType: "DRAFT_BUNDLE",
+		Generation:   1,
+		RequestHash:  "request-a",
+		ContentHash:  stableHash(string(content)),
+		Content:      content,
+	}
+	first, err := store.SaveRunArtifact(context.Background(), lease, artifact)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replay, err := store.SaveRunArtifact(context.Background(), lease, artifact)
+	if err != nil || replay != first {
+		t.Fatalf("artifact replay failed: %+v %+v %v", first, replay, err)
+	}
+	resumed, err := store.GetRunContext(context.Background(), lease)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resumed.ResumeArtifacts) != 1 || string(resumed.ResumeArtifacts[0].Content) != string(content) {
+		t.Fatalf("artifact was not included in resume context: %+v", resumed.ResumeArtifacts)
+	}
+	artifact.Content = []byte(`{"different":true}`)
+	artifact.ContentHash = stableHash(string(artifact.Content))
+	if _, err := store.SaveRunArtifact(context.Background(), lease, artifact); err != ErrInvalidIdempotency {
+		t.Fatalf("expected artifact idempotency conflict, got %v", err)
+	}
+}
+
+func TestMemoryStoreAdvancesPlannedAttemptAfterProviderResult(t *testing.T) {
+	store, run, lease := newLeasedMemoryRun(t)
+	planned := ModelAttempt{
+		AttemptKey: "model-1", Operation: "draft", Provider: "deepseek",
+		RequestHash: "hash-a", Status: "PLANNED",
+	}
+	attemptID, err := store.RecordModelAttempt(context.Background(), lease, planned)
+	if err != nil {
+		t.Fatal(err)
+	}
+	completed := planned
+	completed.Status = "SUCCEEDED"
+	completed.ResponseMetadataJSON = `{"request_id":"redacted"}`
+	replayedID, err := store.RecordModelAttempt(context.Background(), lease, completed)
+	if err != nil || replayedID != attemptID {
+		t.Fatalf("planned attempt was not advanced in place: %q %q %v", attemptID, replayedID, err)
+	}
+	items, err := store.ListModelAttempts(context.Background(), "tenant", "alice", run.TaskID, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].Status != "SUCCEEDED" {
+		t.Fatalf("unexpected attempt projection: %+v", items)
+	}
+}
+
 func TestMemoryStoreRejectsSensitiveAttemptMetadata(t *testing.T) {
 	store, _, lease := newLeasedMemoryRun(t)
 	attempt := ModelAttempt{AttemptKey: "model-1", Operation: "outline", RequestHash: "hash-a", ResponseMetadataJSON: `{"authorization":"secret"}`}

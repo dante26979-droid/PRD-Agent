@@ -14,7 +14,9 @@ from .checkpoint import CheckpointCodec
 from .config import AgentSettings
 from .context import RunContext
 from .evidence import repository_hits_to_evidence
+from .graph import LangGraphAgentLoop
 from .investigation import InvestigationPlan
+from .investigation.models import InvestigationBudget
 from .model import DeepSeekChatClient, ModelResponse
 from .quality import DraftQualityPolicy
 from .result import AgentResult
@@ -95,6 +97,34 @@ class DeterministicAgentLoop:
 
 
 @dataclass(frozen=True)
+class DeterministicStructuredModel:
+    """Offline JSON model used to exercise the production graph locally."""
+
+    def complete(self, system_prompt: str, user_prompt: str) -> ModelResponse:
+        request = json.loads(user_prompt)
+        task_message = str(request.get("task_message", "")).strip()
+        if request.get("quality_issues"):
+            markdown = str(request.get("markdown", "")).strip()
+        else:
+            markdown = (
+                "# PRD Working Draft\n\n"
+                "## 需求背景\n\n"
+                f"{task_message}\n\n"
+                "## 功能范围\n\n"
+                "- 生成结构化 PRD 草稿。\n"
+                "- 对草稿执行事实校验和质量检查。\n\n"
+                "## 验收标准\n\n"
+                "- 每个确认单元可以独立评审。\n"
+                "- 运行快照可用于重启恢复。\n"
+            )
+        return ModelResponse(
+            output=json.dumps({"markdown": markdown}, ensure_ascii=False),
+            token_usage={"total_tokens": 0},
+            model_id="deterministic-structured-v1",
+        )
+
+
+@dataclass(frozen=True)
 class RemoteAgentLoop:
     model: DeepSeekChatClient
     checkpoint_codec: CheckpointCodec
@@ -115,6 +145,11 @@ class RemoteAgentLoop:
             "task_message": context.task_message,
             "workflow_version": context.workflow_version or "agent-runtime.v1",
         }
+        if context.repository_binding_id and context.repository_revision:
+            request_payload["repository"] = {
+                "binding_id": context.repository_binding_id,
+                "revision": context.repository_revision,
+            }
         request_json = json.dumps(
             request_payload,
             ensure_ascii=False,
@@ -122,6 +157,13 @@ class RemoteAgentLoop:
             separators=(",", ":"),
         )
         request_hash = "sha256:" + hashlib.sha256(request_json.encode("utf-8")).hexdigest()
+        first_operation = "plan_or_generate_working_draft"
+        _plan_model_attempt(
+            context,
+            operation=first_operation,
+            attempt_sequence=1,
+            request_hash=request_hash,
+        )
         response = self.model.complete(
             (
                 "You are the PRD Agent runtime. Return JSON. You may return a "
@@ -144,7 +186,7 @@ class RemoteAgentLoop:
                 )
             plan_attempt = _model_attempt(
                 context,
-                operation="plan_investigation",
+                operation=first_operation,
                 attempt_sequence=1,
                 request_hash=request_hash,
                 response=response,
@@ -176,6 +218,12 @@ class RemoteAgentLoop:
             grounded_hash = "sha256:" + hashlib.sha256(
                 grounded_json.encode("utf-8")
             ).hexdigest()
+            _plan_model_attempt(
+                context,
+                operation="generate_working_draft",
+                attempt_sequence=2,
+                request_hash=grounded_hash,
+            )
             response = self.model.complete(
                 (
                     "Generate a reviewable PRD Working Draft as JSON with a "
@@ -200,7 +248,7 @@ class RemoteAgentLoop:
         else:
             first_attempt = _model_attempt(
                 context,
-                operation="generate_working_draft",
+                operation=first_operation,
                 attempt_sequence=1,
                 request_hash=request_hash,
                 response=response,
@@ -281,6 +329,7 @@ class RemoteAgentLoop:
                 evidence.extend(
                     repository_hits_to_evidence(
                         context.repository_binding_id,
+                        context.repository_revision,
                         hits,
                         limit=100,
                     )
@@ -329,13 +378,43 @@ def build_agent_loop(
     settings = AgentSettings.load()
     if settings.llm is not None:
         if capability_factory is None and settings.capability_target:
-            capability_factory = _capability_factory(settings.capability_target)
-        return RemoteAgentLoop(
-            DeepSeekChatClient(settings.llm, transport=transport),
-            CheckpointCodec(),
-            DraftQualityPolicy(max_bytes=settings.max_draft_bytes),
+            capability_factory = _capability_factory(
+                settings.capability_target,
+                settings.service_token,
+            )
+        if settings.loop_mode == "legacy":
+            return RemoteAgentLoop(
+                DeepSeekChatClient(settings.llm, transport=transport),
+                CheckpointCodec(),
+                DraftQualityPolicy(max_bytes=settings.max_draft_bytes),
+                capability_factory=capability_factory,
+                run_token_budget=settings.llm.run_token_budget,
+            )
+        return LangGraphAgentLoop(
+            model=DeepSeekChatClient(settings.llm, transport=transport),
+            checkpoint_codec=CheckpointCodec(),
+            quality_policy=DraftQualityPolicy(max_bytes=settings.max_draft_bytes),
             capability_factory=capability_factory,
-            run_token_budget=settings.llm.run_token_budget,
+            budget=InvestigationBudget(
+                max_iterations=settings.llm.max_iterations,
+                max_tool_calls=settings.llm.max_tool_calls,
+                token_budget=settings.llm.run_token_budget,
+                no_progress_limit=settings.llm.no_progress_limit,
+                max_replans=settings.llm.max_replans,
+            ),
+            advanced_loop_mode=settings.advanced_loop_mode,
+            max_supplements=settings.llm.max_supplements,
+            max_quality_repairs=settings.llm.max_quality_repairs,
+        )
+    if settings.advanced_loop_mode == "enforce":
+        return LangGraphAgentLoop(
+            model=DeterministicStructuredModel(),
+            checkpoint_codec=CheckpointCodec(),
+            quality_policy=DraftQualityPolicy(max_bytes=settings.max_draft_bytes),
+            required_coverage=(),
+            advanced_loop_mode="enforce",
+            max_supplements=0,
+            max_quality_repairs=1,
         )
     return DeterministicAgentLoop(
         CheckpointCodec(),
@@ -407,6 +486,29 @@ def _model_attempt(
     )
 
 
+def _plan_model_attempt(
+    context: RunContext,
+    *,
+    operation: str,
+    attempt_sequence: int,
+    request_hash: str,
+) -> None:
+    if context.plan_model_attempt is None:
+        return
+    context.plan_model_attempt(
+        proto.RecordModelAttemptRequest(
+            attempt_key=f"{context.run_id}:{operation}:{attempt_sequence}",
+            operation=operation,
+            prompt_version=f"agent-runtime.{operation}.v1",
+            provider="deepseek",
+            request_hash=request_hash,
+            status="PLANNED",
+            response_metadata_json="{}",
+            token_usage_json="{}",
+        )
+    )
+
+
 def _total_tokens(response: ModelResponse) -> int:
     usage = response.token_usage
     value = usage.get("total_tokens") or usage.get("total")
@@ -415,7 +517,7 @@ def _total_tokens(response: ModelResponse) -> int:
     return sum(item for item in usage.values() if isinstance(item, int))
 
 
-def _capability_factory(target: str):
+def _capability_factory(target: str, service_token: str | None):
     from .capability import CapabilityGatewayClient, CapabilitySession
 
     def connect(context: RunContext):
@@ -428,6 +530,7 @@ def _capability_factory(target: str):
                 request_id_prefix=context.dispatch_id or context.run_id,
                 correlation_id=context.run_id,
             ),
+            service_token=service_token,
         )
 
     return connect

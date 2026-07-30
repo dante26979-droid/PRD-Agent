@@ -7,8 +7,7 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --passWithNoTests",
-    "types:api": "openapi-typescript http://127.0.0.1:8000/openapi.json -o lib/api/schema.d.ts"
+    "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
     "next": "^16.2.12",
@@ -24,8 +23,11 @@
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "jsdom": "^29.1.1",
-    "openapi-typescript": "^7.13.0",
     "typescript": "^5.9.3",
     "vitest": "^4.1.10"
+  },
+  "overrides": {
+    "postcss": "8.5.24",
+    "sharp": "0.35.3"
   }
 }
