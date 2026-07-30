@@ -32,7 +32,14 @@ def test_default_api_runs_investigation_grounding_and_exposes_public_trace(
         started = _post(
             client,
             "/api/v1/tasks/from-message",
-            {"message": "订单列表增加创建时间筛选"},
+            {
+                "message": (
+                    "为订单运营人员在订单列表增加创建时间范围筛选。"
+                    "范围仅包含订单列表；开始时间不得晚于结束时间；"
+                    "成功标准是准确返回时间范围内订单；"
+                    "不包含历史数据迁移。"
+                )
+            },
             f"default-core-start-{suffix}",
         )
         assert started.status_code == 201

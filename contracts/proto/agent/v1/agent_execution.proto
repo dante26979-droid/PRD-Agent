@@ -1,0 +1,189 @@
+syntax = "proto3";
+
+package agent.v1;
+
+option go_package = "github.com/dante26979-droid/prd-agent/contracts/gen/go/agent/v1;agentv1";
+
+service AgentExecutionService {
+	rpc AcquireRun(AcquireRunRequest) returns (AcquireRunResponse);
+	rpc GetRunContext(GetRunContextRequest) returns (GetRunContextResponse);
+	rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+	rpc RecordModelAttempt(RecordModelAttemptRequest) returns (RecordModelAttemptResponse);
+	rpc AppendEvidence(AppendEvidenceRequest) returns (AppendEvidenceResponse);
+	rpc SaveRunArtifact(SaveRunArtifactRequest) returns (SaveRunArtifactResponse);
+	rpc SaveCheckpoint(SaveCheckpointRequest) returns (SaveCheckpointResponse);
+	rpc SubmitDraft(SubmitDraftRequest) returns (SubmitDraftResponse);
+	rpc CompleteRun(CompleteRunRequest) returns (CompleteRunResponse);
+	rpc FailRun(FailRunRequest) returns (FailRunResponse);
+}
+
+message RequestMeta {
+  string contract_version = 1;
+  string request_id = 2;
+  string correlation_id = 3;
+}
+
+message AcquireRunRequest {
+  string run_id = 1;
+  string worker_id = 2;
+	string contract_version = 3;
+	RequestMeta meta = 4;
+}
+
+message LeaseContext {
+  string run_id = 1;
+  string lease_id = 2;
+	int64 fencing_token = 3;
+	string expires_at = 4;
+	string worker_id = 5;
+}
+
+message AcquireRunResponse { LeaseContext lease = 1; }
+
+message GetRunContextRequest {
+	string run_id = 1;
+	LeaseContext lease = 2;
+	RequestMeta meta = 3;
+}
+
+message AgentRunInput {
+  string run_id = 1;
+  string tenant_id = 2;
+  string owner_id = 3;
+  string task_id = 4;
+  string task_message = 5;
+  string workflow_version = 6;
+	bytes checkpoint = 7;
+	int64 checkpoint_sequence = 8;
+	int64 task_version = 9;
+	string repository_binding_id = 10;
+	string repository_revision = 11;
+	repeated EvidenceItem resume_evidence = 12;
+	repeated RunArtifact resume_artifacts = 13;
+	RevisionScope revision_scope = 14;
+	SubmittedDraftReceipt resume_draft = 15;
+}
+
+message GetRunContextResponse { AgentRunInput input = 1; }
+
+message HeartbeatRequest {
+  LeaseContext lease = 1;
+  RequestMeta meta = 2;
+}
+
+message HeartbeatResponse { LeaseContext lease = 1; }
+
+message RecordModelAttemptRequest {
+  LeaseContext lease = 1;
+  string attempt_key = 2;
+  string operation = 3;
+  string prompt_version = 4;
+  string provider = 5;
+  string request_hash = 6;
+  string status = 7;
+  string response_metadata_json = 8;
+	string token_usage_json = 9;
+	string error_category = 10;
+	RequestMeta meta = 11;
+}
+
+message AttemptReceipt { string attempt_id = 1; }
+message RecordModelAttemptResponse { AttemptReceipt receipt = 1; }
+
+message AppendEvidenceRequest {
+	LeaseContext lease = 1;
+	repeated EvidenceItem items = 2;
+	RequestMeta meta = 3;
+}
+
+message EvidenceItem {
+  string source_type = 1;
+  string source_id = 2;
+  string locator = 3;
+  string excerpt_hash = 4;
+  string excerpt = 5;
+}
+
+message EvidenceReceipt { int64 accepted_count = 1; }
+message AppendEvidenceResponse { EvidenceReceipt receipt = 1; }
+
+message RunArtifact {
+	string artifact_key = 1;
+	string artifact_type = 2;
+	int64 generation = 3;
+	string request_hash = 4;
+	string content_hash = 5;
+	bytes content = 6;
+}
+
+message RevisionScope {
+	string base_draft_id = 1;
+	string base_draft_hash = 2;
+	repeated string reopened_unit_keys = 3;
+	repeated string immutable_unit_keys = 4;
+	string user_feedback = 5;
+}
+
+message SubmittedDraftReceipt {
+	string draft_key = 1;
+	string content_hash = 2;
+	int64 task_version = 3;
+	bytes content = 4;
+}
+
+message SaveRunArtifactRequest {
+	LeaseContext lease = 1;
+	RunArtifact artifact = 2;
+	RequestMeta meta = 3;
+}
+
+message RunArtifactReceipt {
+	string artifact_key = 1;
+	string content_hash = 2;
+}
+
+message SaveRunArtifactResponse { RunArtifactReceipt receipt = 1; }
+
+message SaveCheckpointRequest {
+	LeaseContext lease = 1;
+	int64 sequence = 2;
+	bytes checkpoint = 3;
+	RequestMeta meta = 4;
+}
+
+message CheckpointReceipt { int64 sequence = 1; string content_hash = 2; }
+message SaveCheckpointResponse { CheckpointReceipt receipt = 1; }
+
+message SubmitDraftRequest {
+  LeaseContext lease = 1;
+	int64 expected_task_version = 2;
+	bytes draft_patch = 3;
+	string draft_key = 4;
+	RequestMeta meta = 5;
+}
+
+message DraftReceipt { int64 task_version = 1; }
+message SubmitDraftResponse { DraftReceipt receipt = 1; }
+
+message CompleteRunRequest {
+	LeaseContext lease = 1;
+	string result_type = 2;
+	RequestMeta meta = 3;
+}
+
+message CompleteRunResponse { RunProjection projection = 1; }
+
+message FailRunRequest {
+  LeaseContext lease = 1;
+  string error_category = 2;
+	bool retryable = 3;
+	RequestMeta meta = 4;
+}
+
+message FailRunResponse { RunProjection projection = 1; }
+
+message RunProjection {
+  string run_id = 1;
+  string status = 2;
+  int64 event_sequence = 3;
+}

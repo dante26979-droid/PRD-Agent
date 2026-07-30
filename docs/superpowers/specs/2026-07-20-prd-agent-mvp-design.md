@@ -1,9 +1,12 @@
 # PRD Agent MVP 总体设计
 
-> 文档状态：已确认设计  
+> 文档状态：**停用（INACTIVE）— 已由 `2026-07-21-prd-agent-v1.1-design.md` 的2026-07-28启用版取代**
 > 版本：1.0  
 > 日期：2026-07-20  
 > 适用范围：PRD Agent V1.0 MVP
+
+> 本文仅保留为历史记录。PostgreSQL完整PRD正文、Redis队列准入、飞书仅导出、
+> 多Worker和旧RAG等冲突结论均不得用于当前实施。
 
 ## 1. 文档目的
 

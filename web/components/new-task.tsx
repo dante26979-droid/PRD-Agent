@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
 
-import { ApiError, startTask } from "@/lib/api/client";
+import { ApiError, startAgentTask } from "@/lib/api/client";
 
 const prompts = [
   "为订单列表增加创建时间筛选",
@@ -24,7 +24,7 @@ export function NewTask() {
     setSubmitting(true);
     setError("");
     try {
-      const detail = await startTask(content);
+      const detail = await startAgentTask(content);
       window.dispatchEvent(new Event("prd-agent:tasks-changed"));
       router.push(`/tasks/${detail.task.task_id}`);
     } catch (reason) {

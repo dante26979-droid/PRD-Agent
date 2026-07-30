@@ -716,6 +716,8 @@ CREATE TABLE IF NOT EXISTS export_intents (
     idempotency_input_hash TEXT,
     expires_at TIMESTAMPTZ NOT NULL,
     consumed_at TIMESTAMPTZ,
+    claimed_by TEXT,
+    claim_expires_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (owner_id, idempotency_key_hash)
 );
@@ -877,6 +879,20 @@ CREATE TABLE IF NOT EXISTS inbox_receipts (
     PRIMARY KEY (consumer_name, message_id)
 );
 
+CREATE TABLE IF NOT EXISTS command_idempotency (
+    tenant_id TEXT NOT NULL,
+    owner_id TEXT NOT NULL,
+    operation TEXT NOT NULL,
+    idempotency_key_hash TEXT NOT NULL,
+    request_hash TEXT NOT NULL,
+    resource_type TEXT NOT NULL,
+    resource_id TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (
+        tenant_id, owner_id, operation, idempotency_key_hash
+    )
+);
+
 CREATE TABLE IF NOT EXISTS oauth_authorization_transactions (
     transaction_id TEXT PRIMARY KEY,
     tenant_id TEXT NOT NULL,
@@ -921,5 +937,7 @@ CREATE INDEX IF NOT EXISTS ix_audit_events_target
     ON audit_events(tenant_id, target_type, target_id, occurred_at DESC);
 
 INSERT INTO schema_migrations(version)
-VALUES ('20260727_step10_production_profile')
+VALUES
+    ('20260727_step10_production_profile'),
+    ('20260728_server_deployment_remediation')
 ON CONFLICT (version) DO NOTHING;

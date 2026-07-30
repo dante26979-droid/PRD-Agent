@@ -34,7 +34,6 @@ from prd_agent.domain.errors import (
 )
 from prd_agent.application.default_investigation import (
     DefaultUnitInvestigationContextProvider,
-    RepositoryStructureSelector,
 )
 from prd_agent.application.investigation_read_service import (
     InvestigationReadService,
@@ -48,9 +47,20 @@ from prd_agent.application.repository_evidence_service import (
 from prd_agent.evidence.deterministic_validator import (
     DeterministicEvidenceValidator,
 )
+from prd_agent.export.feishu import FeishuWikiDocumentGateway
+from prd_agent.export.protection import AesGcmExternalIdProtector
+from prd_agent.export.service import ExportApplicationService
+from prd_agent.export.source import WorkflowExportDocumentSource
+from prd_agent.export.store import InMemoryExportStore
 from prd_agent.grounding.service import GroundingService
+from prd_agent.hashing import sha256_json
+from prd_agent.integrations.feishu_credentials import (
+    FeishuTenantAccessTokenResolver,
+)
+from prd_agent.integrations.http import UrllibJsonHttpTransport
 from prd_agent.integrations.errors import IntegrationError, IntegrationErrorCode
 from prd_agent.investigation.runner import InvestigationRunner
+from prd_agent.model_api.errors import ModelApiError
 from prd_agent.production.identity import (
     AuthenticationError,
     AuthorizationError,
@@ -59,19 +69,25 @@ from prd_agent.production.identity import (
     PostgresIdentityDirectory,
 )
 from prd_agent.production.database import ProductionDatabase
-from prd_agent.production.config import secret_or_environment
+from prd_agent.production.config import (
+    DeploymentEnvironment,
+    cors_origins,
+    deployment_environment,
+    secret_or_environment,
+)
 from prd_agent.production.postgres_dispatch import (
     PostgresProductionControlStore,
 )
+from prd_agent.production.model_runtime import build_model_runtime
 from prd_agent.quality.service import DocumentQualityService
 from prd_agent.repository.bindings import RepositoryBinding, RepositoryCatalog
 from prd_agent.repository.git_cli_reader import GitCliObjectReader
 from prd_agent.storage.postgres import PostgresWorkflowRepository
 from prd_agent.storage.postgres_evidence import PostgresEvidenceStore
 from prd_agent.storage.postgres_investigation import PostgresInvestigationStore
+from prd_agent.storage.postgres_export import PostgresExportStore
 from prd_agent.tools.default_registry import build_repository_tool_registry
 from prd_agent.workflow.service import WorkflowService
-from prd_agent.workflow.stub_model import HeuristicWorkflowModel
 
 from .mapping import (
     PUBLIC_EVENT_NAMES,
@@ -162,7 +178,8 @@ def _detail(app: FastAPI, task_id: str, actor_id: str):
         raise
 
 
-def _default_agent_core(repository, dsn: str):
+def _default_agent_core(repository, database: ProductionDatabase):
+    model_runtime = build_model_runtime(deployment_environment())
     project_root = Path(__file__).resolve().parents[3]
     repository_root = Path(
         os.environ.get("PRD_AGENT_REPOSITORY_ROOT", str(project_root))
@@ -186,8 +203,10 @@ def _default_agent_core(repository, dsn: str):
             ]
         )
     )
-    evidence_store = PostgresEvidenceStore.from_dsn(dsn)
-    investigation_store = PostgresInvestigationStore.from_dsn(dsn)
+    evidence_store = database.scoped_repository(PostgresEvidenceStore)
+    investigation_store = database.scoped_repository(
+        PostgresInvestigationStore
+    )
     evidence_service = RepositoryEvidenceService(
         reader,
         build_repository_tool_registry(reader),
@@ -197,7 +216,7 @@ def _default_agent_core(repository, dsn: str):
     investigation_runner = InvestigationRunner(
         evidence_service,
         investigation_store,
-        RepositoryStructureSelector(),
+        model_runtime.action_selector,
     )
     investigation_application = InvestigationApplicationService(
         investigation_store,
@@ -208,10 +227,11 @@ def _default_agent_core(repository, dsn: str):
         evidence_store,
         repository_id=repository_id,
         revision=revision,
+        budget=model_runtime.investigation_budget,
     )
     workflow = WorkflowService(
         repository,
-        HeuristicWorkflowModel(),
+        model_runtime.workflow_model,
         quality_service=DocumentQualityService(),
         unit_context_provider=provider,
         grounding_service=GroundingService(),
@@ -219,8 +239,69 @@ def _default_agent_core(repository, dsn: str):
     return (
         workflow,
         InvestigationReadService(investigation_store, evidence_store),
-        (evidence_store.connection, investigation_store.connection),
+        (evidence_store, investigation_store),
+        model_runtime,
     )
+
+
+def _default_feishu_export(
+    repository,
+    database: ProductionDatabase | None,
+):
+    configured = any(
+        os.environ.get(name) or os.environ.get(f"{name}_FILE")
+        for name in (
+            "PRD_AGENT_FEISHU_APP_ID",
+            "PRD_AGENT_FEISHU_APP_SECRET",
+            "PRD_AGENT_FEISHU_DOCUMENT_HOST",
+            "PRD_AGENT_FEISHU_WIKI_NODE_TOKEN",
+            "PRD_AGENT_EXPORT_CONFIRMATION_SECRET",
+            "PRD_AGENT_EXTERNAL_ID_ENCRYPTION_KEY",
+        )
+    )
+    if not configured:
+        return None, None, ()
+    app_id = secret_or_environment("PRD_AGENT_FEISHU_APP_ID")
+    app_secret = secret_or_environment("PRD_AGENT_FEISHU_APP_SECRET")
+    document_host = secret_or_environment("PRD_AGENT_FEISHU_DOCUMENT_HOST")
+    wiki_node_token = secret_or_environment(
+        "PRD_AGENT_FEISHU_WIKI_NODE_TOKEN"
+    )
+    confirmation_secret = secret_or_environment(
+        "PRD_AGENT_EXPORT_CONFIRMATION_SECRET"
+    ).encode("utf-8")
+    encryption_secret = secret_or_environment(
+        "PRD_AGENT_EXTERNAL_ID_ENCRYPTION_KEY"
+    )
+    transport = UrllibJsonHttpTransport()
+    credentials = FeishuTenantAccessTokenResolver(
+        transport,
+        app_id=app_id,
+        app_secret=app_secret,
+    )
+    gateway = FeishuWikiDocumentGateway(
+        transport,
+        credentials,
+        connection_id="feishu-local",
+        document_host=document_host,
+        wiki_node_token=wiki_node_token,
+    )
+    scoped_stores = ()
+    if database is not None:
+        protector = AesGcmExternalIdProtector(encryption_secret)
+        store = database.scoped_repository(
+            lambda connection: PostgresExportStore(connection, protector)
+        )
+        scoped_stores = (store,)
+    else:
+        store = InMemoryExportStore()
+    service = ExportApplicationService(
+        WorkflowExportDocumentSource(repository),
+        store,
+        gateway,
+        confirmation_secret=confirmation_secret,
+    )
+    return service, gateway, scoped_stores
 
 
 def create_app(
@@ -233,6 +314,7 @@ def create_app(
     production_control_store=None,
     cancellation_signal=None,
 ) -> FastAPI:
+    uses_default_repository = repository is None
     dsn = (
         secret_or_environment("PRD_AGENT_DATABASE_DSN")
         if os.environ.get("PRD_AGENT_DATABASE_DSN")
@@ -240,6 +322,7 @@ def create_app(
         else None
     )
     production_database = None
+    model_runtime = None
     if repository is None:
         if not dsn:
             raise RuntimeError("PRD_AGENT_DATABASE_DSN is required")
@@ -255,20 +338,33 @@ def create_app(
             production_control_store = production_database.scoped_repository(
                 PostgresProductionControlStore
             )
-    managed_connections = ()
+    scoped_stores = ()
     if workflow_service is None:
-        if not dsn:
+        if production_database is None:
             raise RuntimeError(
-                "PRD_AGENT_DATABASE_DSN is required for default Agent Core"
+                "A pooled PRD_AGENT_DATABASE_DSN is required for default "
+                "Agent Core"
             )
         (
             workflow_service,
             investigation_reader,
-            managed_connections,
+            scoped_stores,
+            model_runtime,
         ) = _default_agent_core(
             repository,
-            dsn,
+            production_database,
         )
+    feishu_gateway = None
+    if export_service is None:
+        (
+            export_service,
+            feishu_gateway,
+            export_stores,
+        ) = _default_feishu_export(
+            repository,
+            production_database if uses_default_repository else None,
+        )
+        scoped_stores += export_stores
 
     @asynccontextmanager
     async def lifespan(_app):
@@ -277,8 +373,8 @@ def create_app(
         try:
             yield
         finally:
-            for connection in managed_connections:
-                connection.close()
+            if model_runtime is not None:
+                model_runtime.close()
             if production_database is not None:
                 production_database.close()
 
@@ -295,44 +391,53 @@ def create_app(
     app.state.workflow = workflow_service
     app.state.investigation_reader = investigation_reader
     app.state.export_service = export_service
+    app.state.feishu_gateway = feishu_gateway
     app.state.remote_repository_catalog = remote_repository_catalog
-    environment = os.environ.get("PRD_AGENT_ENVIRONMENT", "local").lower()
-    if principal_resolver is None and environment == "production":
-        issuer = os.environ.get("PRD_AGENT_OIDC_ISSUER", "")
-        audience = os.environ.get("PRD_AGENT_OIDC_AUDIENCE", "")
-        jwks_url = os.environ.get("PRD_AGENT_OIDC_JWKS_URL", "")
-        if production_database is None or not issuer or not audience or not jwks_url:
+    environment = deployment_environment()
+    if principal_resolver is None:
+        if environment is DeploymentEnvironment.LOCAL:
+            principal_resolver = LocalPrincipalResolver()
+        elif environment is DeploymentEnvironment.TEST:
             raise RuntimeError(
-                "Production requires database pooling and OIDC issuer, audience, "
-                "and JWKS URL configuration"
+                "Test requires an authenticated principal resolver"
             )
-        import jwt
+        else:
+            issuer = os.environ.get("PRD_AGENT_OIDC_ISSUER", "")
+            audience = os.environ.get("PRD_AGENT_OIDC_AUDIENCE", "")
+            jwks_url = os.environ.get("PRD_AGENT_OIDC_JWKS_URL", "")
+            if (
+                production_database is None
+                or not issuer
+                or not audience
+                or not jwks_url
+            ):
+                label = environment.value.title()
+                raise RuntimeError(
+                    f"{label} requires an authenticated principal resolver "
+                    "or database pooling and OIDC issuer, audience, and JWKS "
+                    "URL configuration"
+                )
+            import jwt
 
-        principal_resolver = OidcJwtPrincipalResolver(
-            issuer=issuer,
-            audience=audience,
-            jwk_client=jwt.PyJWKClient(jwks_url),
-            identity_directory=PostgresIdentityDirectory(
-                production_database.pool
-            ),
-        )
-    app.state.principal_resolver = principal_resolver or LocalPrincipalResolver()
+            principal_resolver = OidcJwtPrincipalResolver(
+                issuer=issuer,
+                audience=audience,
+                jwk_client=jwt.PyJWKClient(jwks_url),
+                identity_directory=PostgresIdentityDirectory(
+                    production_database.pool
+                ),
+            )
+    app.state.principal_resolver = principal_resolver
     app.state.production_database = production_database
+    app.state.model_runtime = model_runtime
     app.state.production_control_store = production_control_store
     app.state.cancellation_signal = cancellation_signal
-    app.state.managed_connections = managed_connections
+    app.state.scoped_stores = scoped_stores
     app.state.sse_poll_seconds = 1.0
     app.state.sse_heartbeat_seconds = 15.0
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=[
-            item.strip()
-            for item in os.environ.get(
-                "PRD_AGENT_CORS_ORIGINS",
-                "http://localhost:3000,http://127.0.0.1:3000",
-            ).split(",")
-            if item.strip()
-        ],
+        allow_origins=list(cors_origins(environment)),
         allow_credentials=False,
         allow_methods=["GET", "POST", "DELETE"],
         allow_headers=[
@@ -347,14 +452,19 @@ def create_app(
     @app.middleware("http")
     async def request_id_middleware(request: Request, call_next):
         with ExitStack() as stack:
-            if hasattr(repository, "bind"):
-                stack.enter_context(repository.bind())
-            if (
-                production_control_store is not None
-                and production_control_store is not repository
-                and hasattr(production_control_store, "bind")
+            bound_resources: set[int] = set()
+            for resource in (
+                repository,
+                production_control_store,
+                *scoped_stores,
             ):
-                stack.enter_context(production_control_store.bind())
+                if (
+                    resource is not None
+                    and id(resource) not in bound_resources
+                    and hasattr(resource, "bind")
+                ):
+                    stack.enter_context(resource.bind())
+                    bound_resources.add(id(resource))
             supplied = request.headers.get("x-request-id", "")
             request.state.request_id = (
                 supplied
@@ -469,6 +579,20 @@ def create_app(
             ),
         )
 
+    @app.exception_handler(ModelApiError)
+    async def model_api_error(request: Request, exc: ModelApiError):
+        return JSONResponse(
+            status_code=503,
+            content=_error_payload(
+                request,
+                status=503,
+                code="MODEL_PROVIDER_ERROR",
+                title="Model provider unavailable",
+                message="模型服务暂时无法完成请求，请稍后重试。",
+                retryable=exc.retryable,
+            ),
+        )
+
     @app.exception_handler(Exception)
     async def unexpected_error(request: Request, _exc: Exception):
         _rollback(app.state.repository)
@@ -505,7 +629,7 @@ def create_app(
     def ready():
         if production_database is not None:
             if not production_database.readiness(
-                expected_migration="20260727_step10_production_profile"
+                expected_migration="20260728_server_deployment_remediation"
             ):
                 return JSONResponse(
                     status_code=503,
@@ -691,7 +815,6 @@ def create_app(
         body: RetryRunRequest,
         idempotency_key: str = Header(min_length=1, max_length=200),
     ):
-        del idempotency_key
         actor_id = _actor(request, "tasks:write")
         snapshot = repository.snapshot_for_owner(task_id, actor_id)
         if snapshot.task.version != body.expected_task_version:
@@ -718,6 +841,17 @@ def create_app(
                 run_id,
                 owner_id=actor_id,
                 now=datetime.now(timezone.utc),
+                idempotency_key=idempotency_key,
+                request_hash=sha256_json(
+                    {
+                        "operation": "RETRY_RUN",
+                        "task_id": task_id,
+                        "run_id": run_id,
+                        "expected_task_version": (
+                            body.expected_task_version
+                        ),
+                    }
+                ),
             )
         except KeyError as exc:
             raise NotFound(f"run not found: {run_id}") from exc

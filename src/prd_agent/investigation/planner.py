@@ -89,6 +89,7 @@ class ModelActionSelector:
     def __init__(self, model) -> None:
         self.model = model
         self.last_token_usage = 0
+        self.last_model_result = None
 
     def select(
         self,
@@ -101,6 +102,7 @@ class ModelActionSelector:
         first_error = None
         for should_repair in (repair, True):
             result = self.model.complete(operation, payload, repair=should_repair)
+            self.last_model_result = result
             usage = dict(result.token_usage)
             self.last_token_usage += int(
                 usage.get("total_tokens")

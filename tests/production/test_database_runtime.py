@@ -4,7 +4,10 @@ from contextlib import contextmanager
 
 import pytest
 
-from prd_agent.production.database import RequestScopedRepository
+from prd_agent.production.database import (
+    ProductionDatabase,
+    RequestScopedRepository,
+)
 
 
 class FakeConnection:
@@ -43,3 +46,18 @@ def test_request_scoped_repository_uses_a_distinct_connection_per_binding():
 
     assert first == "connection-1"
     assert second == "connection-2"
+
+
+def test_scoped_stores_share_one_connection_inside_the_same_request_unit():
+    pool = FakePool()
+    database = ProductionDatabase(pool)
+    workflow = database.scoped_repository(FakeRepository)
+    evidence = database.scoped_repository(FakeRepository)
+
+    with workflow.bind():
+        with evidence.bind():
+            assert workflow.connection is evidence.connection
+            assert pool.counter == 1
+
+    with workflow.bind():
+        assert workflow.connection.name == "connection-2"

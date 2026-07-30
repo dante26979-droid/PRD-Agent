@@ -1,0 +1,420 @@
+x-go-build: &go-build
+  context: ../..
+  dockerfile: backend-go/Dockerfile
+  args:
+    GOPROXY: ${GOPROXY:-https://goproxy.cn,direct}
+    GOSUMDB: ${GOSUMDB:-sum.golang.google.cn}
+
+services:
+  go-migrate:
+    image: prd-agent-go-control-plane:${PRD_AGENT_IMAGE_TAG:-local}
+    build: *go-build
+    entrypoint: ["/app/prd-agent-go-migrate"]
+    environment:
+      PRD_AGENT_ENVIRONMENT: production
+      PRD_AGENT_DATABASE_DSN_FILE: /run/secrets/database_dsn
+    secrets:
+      - database_dsn
+    group_add:
+      - ${PRD_AGENT_SECRET_GID:-2000}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    profiles: [go-control-plane]
+
+  go-api:
+    image: prd-agent-go-control-plane:${PRD_AGENT_IMAGE_TAG:-local}
+    build: *go-build
+    environment:
+      GIN_MODE: release
+      PRD_AGENT_GO_HTTP_ADDRESS: :8080
+      PRD_AGENT_ENVIRONMENT: production
+      PRD_AGENT_GO_ALLOW_DEV_PRINCIPAL: "false"
+      PRD_AGENT_AUTH_MODE: proxy_allowlist
+      PRD_AGENT_PUBLIC_ORIGIN: ${PRD_AGENT_PUBLIC_ORIGIN:?required}
+      PRD_AGENT_ALLOWED_USERS: ${PRD_AGENT_ALLOWED_USERS:?required}
+      PRD_AGENT_DEFAULT_TENANT: ${PRD_AGENT_DEFAULT_TENANT:-default}
+      PRD_AGENT_FIXED_REPOSITORY_BINDING_ID: ${PRD_AGENT_FIXED_REPOSITORY_BINDING_ID:-github:dante26979-droid/PRD-Agent}
+      PRD_AGENT_FIXED_REPOSITORY: ${PRD_AGENT_FIXED_REPOSITORY:-dante26979-droid/PRD-Agent}
+      PRD_AGENT_FIXED_REPOSITORY_REVISION: ${PRD_AGENT_FIXED_REPOSITORY_REVISION:?required}
+      PRD_AGENT_PROXY_SECRET_FILE: /run/secrets/proxy_secret
+      PRD_AGENT_EXPORT_CONFIRMATION_SECRET_FILE: /run/secrets/export_confirmation_secret
+      PRD_AGENT_DATABASE_DSN_FILE: /run/secrets/database_dsn
+      PRD_AGENT_BROKER_URL: redis://redis:6379/0
+      PRD_AGENT_MAX_GLOBAL_RUNNABLE: ${PRD_AGENT_MAX_GLOBAL_RUNNABLE:-30}
+      PRD_AGENT_MAX_RUNNABLE_PER_OWNER: ${PRD_AGENT_MAX_RUNNABLE_PER_OWNER:-1}
+      PRD_AGENT_MAX_WAITING_RUNS: ${PRD_AGENT_MAX_WAITING_RUNS:-100}
+    secrets:
+      - database_dsn
+      - proxy_secret
+      - export_confirmation_secret
+    group_add:
+      - ${PRD_AGENT_SECRET_GID:-2000}
+    depends_on:
+      go-migrate:
+        condition: service_completed_successfully
+      go-capability:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    profiles: [go-control-plane]
+    expose:
+      - "8080"
+    restart: unless-stopped
+    mem_limit: 160m
+    cpus: "0.25"
+    pids_limit: 128
+    healthcheck:
+      test: ["CMD", "/app/prd-agent-go-api", "healthcheck", "http://127.0.0.1:8080/api/v1/health/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,noexec,nosuid
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+  go-maintenance:
+    image: prd-agent-go-control-plane:${PRD_AGENT_IMAGE_TAG:-local}
+    build: *go-build
+    entrypoint: ["/app/prd-agent-go-maintenance"]
+    environment:
+      PRD_AGENT_ENVIRONMENT: production
+      PRD_AGENT_GO_ALLOW_DEV_PRINCIPAL: "false"
+      PRD_AGENT_DATABASE_DSN_FILE: /run/secrets/database_dsn
+      PRD_AGENT_BROKER_URL: redis://redis:6379/0
+      PRD_AGENT_GO_AGENT_DISPATCH_MODE: ${PRD_AGENT_GO_AGENT_DISPATCH_MODE:-go_rpc_pool}
+      PRD_AGENT_GO_AGENT_RPC_WORKER_ENDPOINTS: python-agent:9100
+      PRD_AGENT_GO_AGENT_RPC_MAX_INFLIGHT_PER_WORKER: ${PRD_AGENT_GO_AGENT_RPC_MAX_INFLIGHT_PER_WORKER:-1}
+      PRD_AGENT_AGENT_RPC_TOKEN_FILE: /run/secrets/agent_rpc_token
+      PRD_AGENT_MAX_GLOBAL_RUNNABLE: ${PRD_AGENT_MAX_GLOBAL_RUNNABLE:-30}
+      PRD_AGENT_MAX_RUNNABLE_PER_OWNER: ${PRD_AGENT_MAX_RUNNABLE_PER_OWNER:-1}
+      PRD_AGENT_MAX_WAITING_RUNS: ${PRD_AGENT_MAX_WAITING_RUNS:-100}
+      PRD_AGENT_FIXED_REPOSITORY_BINDING_ID: ${PRD_AGENT_FIXED_REPOSITORY_BINDING_ID:-github:dante26979-droid/PRD-Agent}
+      PRD_AGENT_FIXED_REPOSITORY: ${PRD_AGENT_FIXED_REPOSITORY:-dante26979-droid/PRD-Agent}
+      PRD_AGENT_FIXED_REPOSITORY_REVISION: ${PRD_AGENT_FIXED_REPOSITORY_REVISION:?required}
+    secrets:
+      - database_dsn
+      - agent_rpc_token
+    group_add:
+      - ${PRD_AGENT_SECRET_GID:-2000}
+    depends_on:
+      go-migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      python-agent:
+        condition: service_started
+    profiles: [go-control-plane]
+    restart: unless-stopped
+    mem_limit: 160m
+    cpus: "0.35"
+    pids_limit: 128
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,noexec,nosuid
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "/app/prd-agent-go-maintenance", "healthcheck"]
+      interval: 15s
+      timeout: 5s
+      retries: 4
+
+  go-capability:
+    image: prd-agent-go-control-plane:${PRD_AGENT_IMAGE_TAG:-local}
+    build: *go-build
+    # Git can spawn transport helpers. If a timed-out helper outlives its
+    # parent, Docker's init process must reap it instead of leaking zombies
+    # into the service PID budget.
+    init: true
+    entrypoint: ["/app/prd-agent-go-capability"]
+    environment:
+      PRD_AGENT_ENVIRONMENT: production
+      PRD_AGENT_GO_ALLOW_DEV_PRINCIPAL: "false"
+      PRD_AGENT_DATABASE_DSN_FILE: /run/secrets/database_dsn
+      PRD_AGENT_AGENT_RPC_TOKEN_FILE: /run/secrets/agent_rpc_token
+      PRD_AGENT_CAPABILITY_GRPC_ADDRESS: :9200
+      PRD_AGENT_REPOSITORY_SNAPSHOT_ROOT: /repository
+      PRD_AGENT_REPOSITORY_REFRESH_INTERVAL_SECONDS: ${PRD_AGENT_REPOSITORY_REFRESH_INTERVAL_SECONDS:-30}
+      PRD_AGENT_FIXED_REPOSITORY_BINDING_ID: ${PRD_AGENT_FIXED_REPOSITORY_BINDING_ID:-github:dante26979-droid/PRD-Agent}
+      PRD_AGENT_FIXED_REPOSITORY: ${PRD_AGENT_FIXED_REPOSITORY:-dante26979-droid/PRD-Agent}
+      PRD_AGENT_FIXED_REPOSITORY_REVISION: ${PRD_AGENT_FIXED_REPOSITORY_REVISION:?required}
+    secrets:
+      - database_dsn
+      - agent_rpc_token
+    group_add:
+      - ${PRD_AGENT_SECRET_GID:-2000}
+    volumes:
+      - repository-snapshots:/repository
+    depends_on:
+      go-migrate:
+        condition: service_completed_successfully
+    profiles: [go-control-plane]
+    expose:
+      - "9200"
+    restart: unless-stopped
+    mem_limit: 192m
+    cpus: "0.25"
+    pids_limit: 96
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,noexec,nosuid
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "/app/prd-agent-go-capability", "healthcheck", "127.0.0.1:9200"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    logging:
+      options: {max-size: "10m", max-file: "3"}
+
+  python-agent:
+    build:
+      context: ../..
+      dockerfile: agent-python/Dockerfile
+      args:
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}
+    environment:
+      PRD_AGENT_ENVIRONMENT: production
+      PRD_AGENT_AGENT_WORKER_ENDPOINT: :9100
+      PRD_AGENT_AGENT_WORKER_ID: worker-1
+      PRD_AGENT_AGENT_WORKER_MAX_INFLIGHT: ${PRD_AGENT_GO_AGENT_RPC_MAX_INFLIGHT_PER_WORKER:-1}
+      PRD_AGENT_AGENT_LOOP_FACTORY: ${PRD_AGENT_AGENT_LOOP_FACTORY:-agent.bootstrap:build_agent_loop}
+      PRD_AGENT_AGENT_RPC_TOKEN_FILE: /run/secrets/agent_rpc_token
+      PRD_AGENT_AGENT_MAX_CHECKPOINT_BYTES: ${PRD_AGENT_AGENT_MAX_CHECKPOINT_BYTES:-262144}
+      PRD_AGENT_AGENT_MAX_DRAFT_BYTES: ${PRD_AGENT_AGENT_MAX_DRAFT_BYTES:-1048576}
+      PRD_AGENT_AGENT_MAX_EVIDENCE_ITEMS: ${PRD_AGENT_AGENT_MAX_EVIDENCE_ITEMS:-100}
+      PRD_AGENT_AGENT_EVENT_ACK_TIMEOUT_SECONDS: ${PRD_AGENT_AGENT_EVENT_ACK_TIMEOUT_SECONDS:-30}
+      PRD_AGENT_CAPABILITY_GATEWAY_TARGET: go-capability:9200
+      PRD_AGENT_LLM_PROVIDER: deepseek
+      PRD_AGENT_LLM_BASE_URL: https://api.deepseek.com
+      PRD_AGENT_LLM_MODEL: ${PRD_AGENT_LLM_MODEL:-deepseek-v4-pro}
+      PRD_AGENT_LLM_API_KEY_FILE: /run/secrets/deepseek_api_key
+      PRD_AGENT_LLM_TIMEOUT_SECONDS: ${PRD_AGENT_LLM_TIMEOUT_SECONDS:-90}
+      PRD_AGENT_LLM_CONNECT_TIMEOUT_SECONDS: ${PRD_AGENT_LLM_CONNECT_TIMEOUT_SECONDS:-5}
+      PRD_AGENT_LLM_MAX_OUTPUT_TOKENS: ${PRD_AGENT_LLM_MAX_OUTPUT_TOKENS:-4096}
+      PRD_AGENT_AGENT_LOOP_MODE: ${PRD_AGENT_AGENT_LOOP_MODE:-langgraph}
+      PRD_AGENT_LLM_MAX_ITERATIONS: ${PRD_AGENT_LLM_MAX_ITERATIONS:-8}
+      PRD_AGENT_LLM_MAX_TOOL_CALLS: ${PRD_AGENT_LLM_MAX_TOOL_CALLS:-8}
+      PRD_AGENT_LLM_NO_PROGRESS_LIMIT: ${PRD_AGENT_LLM_NO_PROGRESS_LIMIT:-2}
+      PRD_AGENT_LLM_MAX_REPLANS: ${PRD_AGENT_LLM_MAX_REPLANS:-1}
+      PRD_AGENT_LLM_RUN_TOKEN_BUDGET: ${PRD_AGENT_LLM_RUN_TOKEN_BUDGET:-24000}
+      PRD_AGENT_LLM_MAX_TRANSPORT_RETRIES: ${PRD_AGENT_LLM_MAX_TRANSPORT_RETRIES:-2}
+      PRD_AGENT_LLM_ALLOWED_HOSTS: api.deepseek.com
+    secrets:
+      - deepseek_api_key
+      - agent_rpc_token
+    group_add:
+      - ${PRD_AGENT_SECRET_GID:-2000}
+    depends_on:
+      go-capability:
+        condition: service_healthy
+    profiles: [go-control-plane]
+    restart: unless-stopped
+    mem_limit: 448m
+    cpus: "1.00"
+    pids_limit: 256
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import socket; connection=socket.create_connection(('127.0.0.1',9100),2); connection.close()"
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 20s
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,noexec,nosuid
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  go-integration:
+    image: prd-agent-go-control-plane:${PRD_AGENT_IMAGE_TAG:-local}
+    build: *go-build
+    entrypoint: ["/app/prd-agent-go-integration"]
+    environment:
+      PRD_AGENT_ENVIRONMENT: production
+      PRD_AGENT_DATABASE_DSN_FILE: /run/secrets/database_dsn
+      PRD_AGENT_FEISHU_APP_ID_FILE: /run/secrets/feishu_app_id
+      PRD_AGENT_FEISHU_APP_SECRET_FILE: /run/secrets/feishu_app_secret
+      PRD_AGENT_FEISHU_DOCUMENT_HOST: ${PRD_AGENT_FEISHU_DOCUMENT_HOST:?required}
+      PRD_AGENT_FEISHU_WIKI_NODE_TOKEN_FILE: /run/secrets/feishu_wiki_node_token
+      PRD_AGENT_INTEGRATION_WORKER_ID: integration-1
+      PRD_AGENT_GO_MAINTENANCE_INTERVAL_SECONDS: ${PRD_AGENT_INTEGRATION_INTERVAL_SECONDS:-5}
+    secrets:
+      - database_dsn
+      - feishu_app_id
+      - feishu_app_secret
+      - feishu_wiki_node_token
+    group_add:
+      - ${PRD_AGENT_SECRET_GID:-2000}
+    depends_on:
+      go-migrate:
+        condition: service_completed_successfully
+    profiles: [go-control-plane]
+    restart: unless-stopped
+    mem_limit: 128m
+    cpus: "0.20"
+    pids_limit: 96
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,noexec,nosuid
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    logging:
+      options: {max-size: "10m", max-file: "3"}
+    healthcheck:
+      test: ["CMD", "/app/prd-agent-go-integration", "healthcheck"]
+      interval: 15s
+      timeout: 5s
+      retries: 4
+
+  web:
+    build:
+      context: ../..
+      dockerfile: web/Dockerfile
+      args:
+        PRD_AGENT_API_ORIGIN: http://go-api:8080
+    environment:
+      HOSTNAME: 0.0.0.0
+    depends_on:
+      go-api:
+        condition: service_healthy
+    expose:
+      - "3000"
+    profiles: [go-control-plane]
+    restart: unless-stopped
+    mem_limit: 192m
+    cpus: "0.30"
+    pids_limit: 128
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,noexec,nosuid
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    logging:
+      options: {max-size: "10m", max-file: "3"}
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
+
+  ingress:
+    build:
+      context: ../..
+      dockerfile: infra/production/ingress/Dockerfile
+    environment:
+      PRD_AGENT_SERVER_NAME: ${PRD_AGENT_SERVER_NAME:?required}
+    secrets:
+      - proxy_secret
+      - basic_auth_htpasswd
+      - tls_certificate
+      - tls_private_key
+    depends_on:
+      web:
+        condition: service_started
+      go-api:
+        condition: service_healthy
+    user: "101:101"
+    group_add:
+      - ${PRD_AGENT_SECRET_GID:-2000}
+    ports:
+      - "443:8443"
+    profiles: [go-control-plane]
+    restart: unless-stopped
+    mem_limit: 64m
+    cpus: "0.10"
+    pids_limit: 64
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx:size=16m,uid=101,gid=101,mode=0700,noexec,nosuid
+      - /var/run:size=4m,uid=101,gid=101,mode=0700,noexec,nosuid
+      - /etc/nginx/conf.d:size=2m,uid=101,gid=101,mode=0750,noexec,nosuid
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider --no-check-certificate --header=\"Host: $${PRD_AGENT_SERVER_NAME}\" https://127.0.0.1:8443/ingress-health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    logging:
+      options: {max-size: "10m", max-file: "3"}
+
+  backup-agent:
+    build:
+      context: ../..
+      dockerfile: infra/production/backup/Dockerfile
+      args:
+        APK_REPOSITORY_HOST: ${APK_REPOSITORY_HOST:-mirrors.aliyun.com}
+    environment:
+      PRD_AGENT_BACKUP_INTERVAL_SECONDS: ${PRD_AGENT_BACKUP_INTERVAL_SECONDS:-900}
+      PRD_AGENT_BACKUP_RETENTION_DAYS: ${PRD_AGENT_BACKUP_RETENTION_DAYS:-90}
+    secrets:
+      - database_dsn
+      - backup_encryption_key
+    volumes:
+      - type: bind
+        source: ${PRD_AGENT_BACKUP_DIRECTORY:?required}
+        target: /backups
+      - backup-work:/work
+    depends_on:
+      postgres:
+        condition: service_healthy
+    profiles: [go-control-plane]
+    restart: unless-stopped
+    mem_limit: 64m
+    cpus: "0.15"
+    pids_limit: 64
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /backups/latest-success && find /backups/latest-success -mmin -1440 | grep -q ."]
+      interval: 30m
+      timeout: 5s
+      retries: 2
+      start_period: 1m
+      start_interval: 10s
+    logging:
+      options: {max-size: "10m", max-file: "3"}
+
+volumes:
+  backup-work:
+  repository-snapshots:

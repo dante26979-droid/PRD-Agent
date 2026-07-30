@@ -176,8 +176,8 @@ class FeishuDocumentGateway:
                 "bound document changed after the last export",
             )
         items = self._children(external_id)
-        try:
-            if items:
+        if items:
+            try:
                 self._request(
                     "DELETE",
                     (
@@ -186,6 +186,15 @@ class FeishuDocumentGateway:
                     ),
                     {"start_index": 0, "end_index": len(items)},
                 )
+            except IntegrationError as exc:
+                if exc.code == IntegrationErrorCode.UNAUTHORIZED:
+                    raise
+                raise IntegrationError(
+                    IntegrationErrorCode.RESULT_UNKNOWN,
+                    "bound document replacement requires manual review",
+                    retryable=False,
+                ) from exc
+        try:
             self._append_blocks(external_id, document)
         except IntegrationError as exc:
             raise IntegrationError(
@@ -243,17 +252,20 @@ class FeishuDocumentGateway:
             json_body=json_body,
             timeout_seconds=self.timeout_seconds,
         )
+        if (
+            isinstance(response.body, dict)
+            and response.body.get("code") in {99991663, 99991668, 99991672}
+        ):
+            raise IntegrationError(
+                IntegrationErrorCode.UNAUTHORIZED,
+                "Feishu authorization is not available",
+            )
         if not 200 <= response.status_code < 300:
             self._raise_for_status(response.status_code)
         if not isinstance(response.body, dict):
             raise self._invalid()
         code = response.body.get("code")
         if code != 0:
-            if code in {99991663, 99991668, 99991672}:
-                raise IntegrationError(
-                    IntegrationErrorCode.UNAUTHORIZED,
-                    "Feishu authorization is not available",
-                )
             raise IntegrationError(
                 IntegrationErrorCode.INVALID_PROVIDER_RESPONSE,
                 "Feishu rejected the document operation",
@@ -300,4 +312,112 @@ class FeishuDocumentGateway:
             code,
             "Feishu document operation failed",
             retryable=retryable,
+        )
+
+
+class FeishuWikiDocumentGateway(FeishuDocumentGateway):
+    """Read and overwrite one configured Docx node without changing its Wiki URL."""
+
+    create_idempotency_capability = CreateIdempotencyCapability.RECONCILABLE
+
+    def __init__(
+        self,
+        transport: JsonHttpTransport,
+        credentials: CredentialResolver,
+        *,
+        connection_id: str,
+        document_host: str,
+        wiki_node_token: str,
+        base_url: str = "https://open.feishu.cn/open-apis",
+        timeout_seconds: float = 15,
+        renderer: FeishuBlockRenderer | None = None,
+    ) -> None:
+        if not _DOCUMENT_ID.fullmatch(wiki_node_token):
+            raise ValueError("wiki_node_token is invalid")
+        super().__init__(
+            transport,
+            credentials,
+            connection_id=connection_id,
+            document_host=document_host,
+            base_url=base_url,
+            timeout_seconds=timeout_seconds,
+            renderer=renderer,
+        )
+        self.wiki_node_token = wiki_node_token
+        self._resolved_document_id: str | None = None
+
+    def create_document(
+        self,
+        document: ExportDocument,
+        *,
+        idempotency_key: str,
+    ) -> ProviderDocumentResult:
+        return super().overwrite_document(
+            self._document_id(),
+            document,
+            idempotency_key=idempotency_key,
+            expected_revision=None,
+        )
+
+    def overwrite_document(
+        self,
+        external_id: str,
+        document: ExportDocument,
+        *,
+        idempotency_key: str,
+        expected_revision: str | None,
+    ) -> ProviderDocumentResult:
+        document_id = self._document_id()
+        if external_id != document_id:
+            raise IntegrationError(
+                IntegrationErrorCode.RESOURCE_CHANGED,
+                "bound Feishu document no longer matches the configured Wiki node",
+            )
+        return super().overwrite_document(
+            document_id,
+            document,
+            idempotency_key=idempotency_key,
+            expected_revision=expected_revision,
+        )
+
+    def read_document(self) -> str:
+        document_id = self._document_id()
+        response = self._request(
+            "GET",
+            (
+                f"/docx/v1/documents/{quote(document_id, safe='')}/"
+                "raw_content"
+            ),
+        )
+        content = response.get("data", {}).get("content")
+        if not isinstance(content, str):
+            raise self._invalid()
+        return content
+
+    def _document_id(self) -> str:
+        if self._resolved_document_id:
+            return self._resolved_document_id
+        query = urlencode({"token": self.wiki_node_token})
+        response = self._request(
+            "GET",
+            f"/wiki/v2/spaces/get_node?{query}",
+        )
+        node = response.get("data", {}).get("node", {})
+        if node.get("obj_type") != "docx":
+            raise IntegrationError(
+                IntegrationErrorCode.INVALID_STATE,
+                "configured Feishu Wiki node is not a Docx document",
+            )
+        document_id = node.get("obj_token")
+        if not isinstance(document_id, str):
+            raise self._invalid()
+        self._validate_document_id(document_id)
+        self._resolved_document_id = document_id
+        return document_id
+
+    def _safe_url(self, document_id: str) -> str:
+        del document_id
+        return (
+            f"https://{self.document_host}/wiki/"
+            f"{quote(self.wiki_node_token, safe='')}"
         )

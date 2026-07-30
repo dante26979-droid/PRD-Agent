@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from datetime import datetime
 from threading import RLock
 
 from prd_agent.integrations.errors import IntegrationError, IntegrationErrorCode
@@ -15,6 +16,7 @@ class InMemoryExportStore:
         self._runs: dict[str, ExportRun] = {}
         self._replays: dict[tuple[str, str], tuple[str, str]] = {}
         self._preview_replays: dict[tuple[str, str], tuple[str, str]] = {}
+        self._intent_claims: dict[str, tuple[str, str, datetime]] = {}
         self._lock = RLock()
 
     def save_intent(self, intent: ExportIntent) -> None:
@@ -151,6 +153,72 @@ class InMemoryExportStore:
     def consume_intent(self, intent: ExportIntent) -> None:
         with self._lock:
             self._intents[intent.intent_id] = deepcopy(intent)
+
+    def claim_intent(
+        self,
+        intent_id: str,
+        owner_id: str,
+        claim_id: str,
+        *,
+        now: datetime,
+        claim_expires_at: datetime,
+    ) -> bool:
+        with self._lock:
+            intent = self._intents.get(intent_id)
+            if (
+                intent is None
+                or intent.owner_id != owner_id
+                or intent.consumed_at is not None
+            ):
+                return False
+            current = self._intent_claims.get(intent_id)
+            if (
+                current is not None
+                and current[1] != claim_id
+                and current[2] > now
+            ):
+                return False
+            self._intent_claims[intent_id] = (
+                owner_id,
+                claim_id,
+                claim_expires_at,
+            )
+            return True
+
+    def release_intent_claim(
+        self,
+        intent_id: str,
+        owner_id: str,
+        claim_id: str,
+    ) -> None:
+        with self._lock:
+            current = self._intent_claims.get(intent_id)
+            if current is not None and current[:2] == (owner_id, claim_id):
+                del self._intent_claims[intent_id]
+
+    def consume_claimed_intent(
+        self,
+        intent_id: str,
+        owner_id: str,
+        claim_id: str,
+        *,
+        consumed_at: datetime,
+    ) -> bool:
+        with self._lock:
+            current = self._intent_claims.get(intent_id)
+            intent = self._intents.get(intent_id)
+            if (
+                current is None
+                or current[:2] != (owner_id, claim_id)
+                or intent is None
+                or intent.consumed_at is not None
+            ):
+                return False
+            self._intents[intent_id] = intent.model_copy(
+                update={"consumed_at": consumed_at}
+            )
+            del self._intent_claims[intent_id]
+            return True
 
     def list_runs(self, task_id: str, owner_id: str) -> tuple[ExportRun, ...]:
         values = [

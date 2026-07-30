@@ -4,8 +4,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
-import { listTasks } from "@/lib/api/client";
-import type { TaskSummary } from "@/lib/api/types";
+import { listAgentTasks } from "@/lib/api/client";
+import type { ControlTask } from "@/lib/api/agent-types";
 
 const statusLabel: Record<string, string> = {
   NEEDS_INPUT: "待输入",
@@ -18,13 +18,13 @@ const statusLabel: Record<string, string> = {
 
 export function AppFrame({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const [tasks, setTasks] = useState<TaskSummary[]>([]);
+  const [tasks, setTasks] = useState<ControlTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   const refresh = useCallback(async () => {
     try {
-      const response = await listTasks();
+      const response = await listAgentTasks();
       setTasks(response.items);
       setError("");
     } catch {
@@ -76,6 +76,7 @@ export function AppFrame({ children }: { children: React.ReactNode }) {
           )}
           {tasks.map((task) => {
             const active = pathname === `/tasks/${task.task_id}`;
+            const latestStatus = task.status;
             return (
               <Link
                 className={`task-link ${active ? "active" : ""}`}
@@ -83,11 +84,11 @@ export function AppFrame({ children }: { children: React.ReactNode }) {
                 key={task.task_id}
                 aria-current={active ? "page" : undefined}
               >
-                <span className={`status-dot status-${task.display_status}`} />
+                <span className={`status-dot status-${latestStatus}`} />
                 <span className="task-link-copy">
-                  <strong title={task.title}>{task.title}</strong>
+                  <strong title={task.message}>{task.message}</strong>
                   <small>
-                    {statusLabel[task.display_status] ?? task.display_status}
+                    {statusLabel[latestStatus] ?? latestStatus}
                     <span> · </span>
                     {new Intl.DateTimeFormat("zh-CN", {
                       month: "numeric",

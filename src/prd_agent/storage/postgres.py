@@ -6,6 +6,8 @@ unit-test and evaluation paths remain dependency-free.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+import hashlib
 import json
 from typing import Any
 import uuid
@@ -63,6 +65,23 @@ class PostgresWorkflowRepository:
 
     def commit(self) -> None:
         self.connection.commit()
+
+    @contextmanager
+    def idempotency_lock(self, actor_id: str, key: str):
+        digest = hashlib.sha256(
+            f"{actor_id}\0{key}".encode("utf-8")
+        ).digest()
+        advisory_key = int.from_bytes(digest[:8], "big", signed=True)
+        with self.connection.cursor() as cursor:
+            cursor.execute("SELECT pg_advisory_lock(%s)", (advisory_key,))
+        try:
+            yield
+        finally:
+            with self.connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT pg_advisory_unlock(%s)",
+                    (advisory_key,),
+                )
 
     def get_idempotency(self, actor_id: str, key: str) -> IdempotencyRecord | None:
         with self.connection.cursor() as cursor:

@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import Enum
 import hashlib
 import json
 from typing import Any, Mapping, Protocol
+
+from .prompts import structured_system_prompt
 
 
 @dataclass(frozen=True)
@@ -41,21 +44,27 @@ class JsonWorkflowModelAdapter:
         *,
         repair: bool = False,
     ) -> StructuredModelResult:
-        system_prompt = (
-            "你是 PRD Workflow 的结构化节点。只返回一个 JSON 对象，不得调用工具，"
-            "不得输出私有推理。操作：" + operation
+        system_prompt = structured_system_prompt(
+            operation,
+            repair=repair,
         )
-        if repair:
-            system_prompt += "。上次输出未通过 Schema 校验；请基于完全相同输入修复格式。"
         response = self.model.complete(
             system_prompt,
-            json.dumps(payload, ensure_ascii=False, sort_keys=True),
+            json.dumps(
+                payload,
+                ensure_ascii=False,
+                sort_keys=True,
+                default=_json_value,
+            ),
             timeout_seconds=self.timeout_seconds,
         )
-        try:
-            structured = json.loads(response.output)
-        except json.JSONDecodeError:
+        if response.finish_reason != "stop":
             structured = {}
+        else:
+            try:
+                structured = json.loads(response.output)
+            except json.JSONDecodeError:
+                structured = {}
         if not isinstance(structured, dict):
             structured = {}
         return StructuredModelResult(
@@ -65,5 +74,15 @@ class JsonWorkflowModelAdapter:
             raw_output_hash="sha256:"
             + hashlib.sha256(response.output.encode("utf-8")).hexdigest(),
             token_usage=dict(response.token_usage),
-            finish_reason="stop",
+            finish_reason=response.finish_reason,
         )
+
+
+def _json_value(value):
+    if hasattr(value, "model_dump"):
+        return value.model_dump(mode="json")
+    if isinstance(value, Enum):
+        return value.value
+    raise TypeError(
+        f"unsupported model payload value: {type(value).__name__}"
+    )

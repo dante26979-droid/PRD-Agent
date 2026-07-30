@@ -168,3 +168,26 @@ def validate_unit_draft(value: Mapping[str, Any]) -> dict[str, Any]:
     except (TypeError, ValueError) as exc:
         raise ModelOutputError(f"invalid confirmation unit claims: {exc}") from exc
     return {"content": content, "claims": claims, "sections": tuple(sections)}
+
+
+def validate_unit_draft_for_nodes(
+    value: Mapping[str, Any],
+    expected_node_keys: tuple[str, ...],
+) -> dict[str, Any]:
+    draft = validate_unit_draft(value)
+    sections = draft["sections"]
+    if not sections:
+        if len(expected_node_keys) > 1:
+            raise ModelOutputError(
+                "a multi-node confirmation unit requires structured sections"
+            )
+        return draft
+    provided_keys = [item["node_key"] for item in sections]
+    if (
+        len(provided_keys) != len(set(provided_keys))
+        or set(provided_keys) != set(expected_node_keys)
+    ):
+        raise ModelOutputError(
+            "generated sections must cover every unit node exactly once"
+        )
+    return draft

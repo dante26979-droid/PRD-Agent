@@ -8,6 +8,18 @@ dynamic confirmation units, confirmed-only context, immutable section/document v
 Document Quality gates, user-approved revision and explicit finalization. Step 7 adds an
 owner-scoped FastAPI, resumable SSE stream and a responsive Next.js PRD workbench.
 
+The deployment target is a bounded multi-user service on 2 vCPU / 2GB RAM /
+40GB SSD. Feishu owns published PRD bodies, GitHub owns repository content,
+PostgreSQL owns orchestration and retrieval metadata, and production calls a
+remote LLM only. The migration and acceptance contract is documented in
+`docs/superpowers/plans/2026-07-28-feishu-github-rag-queue-architecture-design.md`.
+The active P0 implementation scope for a small number of stable users and a
+single recoverable Agent is
+`docs/superpowers/plans/2026-07-29-agent-landing-p0-solution-design.md`.
+The active master design is
+`docs/superpowers/specs/2026-07-21-prd-agent-v1.1-design.md`; the V1.0 design is
+inactive and retained only as history.
+
 ## Local setup
 
 ```bash
@@ -17,6 +29,12 @@ npm --prefix web install
 docker compose -f infra/local/docker-compose.yml up -d
 export PRD_AGENT_DATABASE_DSN='postgresql://prd_agent:prd_agent_local_only@localhost:5432/prd_agent'
 ```
+
+To enable the real LLM workflow locally, create the ignored file
+`infra/production/secrets/deepseek_api_key` with only the DeepSeek API key,
+then copy the `PRD_AGENT_LLM_*` settings from `.env.example`. The deterministic
+offline model remains available only to local development, tests and evaluation;
+staging and production fail readiness without the remote model configuration.
 
 For a PostgreSQL volume created before Step 2, apply `infra/local/schema.sql` once; Docker's
 initialization directory only runs for a new volume.
@@ -49,16 +67,17 @@ Step 10 adds the production profile: OIDC principal mapping, per-request
 PostgreSQL pool connections, transactional Outbox/Inbox, worker leases with
 heartbeat and fencing, Celery JSON queue contracts, persisted cancellation,
 recovery reconciliation, OAuth/Secret/Webhook security boundaries, and
-production deployment manifests. PostgreSQL remains the business source of
-truth; Redis is used for broker and low-latency cancellation notification only.
+production deployment manifests. PostgreSQL remains the source of truth for the
+PRD Agent control plane; Feishu is the source of truth for published PRD bodies,
+GitHub is the source of truth for code, and Redis is used only for broker,
+wake-up, cancellation notification and bounded caches.
 
 ## Web workbench
 
 Start the API and Web app in separate terminals:
 
 ```bash
-PRD_AGENT_DATABASE_DSN="$PRD_AGENT_DATABASE_DSN" \
-  venv/bin/uvicorn prd_agent.api:create_app --factory \
+venv/bin/uvicorn --env-file .env prd_agent.api:create_app --factory \
   --host 127.0.0.1 --port 8000
 
 npm --prefix web run dev
@@ -69,35 +88,52 @@ principal, but every list, snapshot, command and event query still enforces `own
 The UI supports task creation, clarification, outline/unit confirmation, quality revision,
 finalization, reopen, safe Markdown and event-cursor recovery.
 
-## Production profile
+## Local Feishu Wiki integration
 
-Production startup fails closed unless OIDC and database-secret configuration
-is present. Required variables are:
+Copy `.env.example` to `.env` and configure one existing Wiki Docx node. The
+application exchanges `PRD_AGENT_FEISHU_APP_ID` and
+`PRD_AGENT_FEISHU_APP_SECRET` for a cached tenant access token, resolves
+`PRD_AGENT_FEISHU_WIKI_NODE_TOKEN` to the underlying Docx identifier, and
+always reads or replaces that same node in place. The user-facing link remains
+the configured Wiki URL.
 
-```text
-PRD_AGENT_ENVIRONMENT=production
-PRD_AGENT_DATABASE_DSN_FILE=/run/secrets/database_dsn
-PRD_AGENT_BROKER_URL=redis://redis:6379/0
-PRD_AGENT_OIDC_ISSUER=https://...
-PRD_AGENT_OIDC_AUDIENCE=prd-agent-api
-PRD_AGENT_OIDC_JWKS_URL=https://.../.well-known/jwks.json
-PRD_AGENT_CORS_ORIGINS=https://your-web-origin.example
-```
-
-`infra/production/docker-compose.yml` is a hardened reference topology for
-PostgreSQL, Redis, the expand migration job, API, Outbox publisher and
-reconciler. Create `infra/production/secrets/postgres_password.txt` and
-`infra/production/secrets/database_dsn.txt` outside version control before
-starting it. Containers run as non-root with dropped capabilities and a
-read-only root filesystem.
-
-Operational commands:
+The configured Feishu application must be published, have Docx/Wiki API
+permissions, and have edit access to the concrete Wiki space. Generate the two
+local application secrets independently:
 
 ```bash
-prd-agent-publisher --once
-prd-agent-scheduler --once
-prd-agent-migrate --root infra/local
+openssl rand -hex 32
+openssl rand -hex 32
 ```
+
+For an existing database, apply the integration tables before starting the
+API:
+
+```bash
+set -a
+source .env
+set +a
+venv/bin/python -m prd_agent.production.migrate --root infra/local
+```
+
+## Production profile
+
+The small-user P0 profile does **not** require an identity platform. TLS ingress
+uses one Basic Auth credential per allowed user, strips caller-supplied identity
+headers, and passes an authenticated username plus a 32-byte proxy secret to
+the Go API. The API enforces an explicit user allowlist, exact Origin/Host, and
+owner isolation.
+
+The production topology now includes PostgreSQL, Redis wake-up transport, Go
+API/migrations/maintenance, one Python Agent Worker, one fixed-Wiki Feishu
+Integration Worker, Next.js Web, TLS ingress, and encrypted 15-minute database
+snapshots. All model calls and the DeepSeek key stay in the Agent container.
+
+Use the complete deployment and recovery procedure in
+[`infra/production/README.md`](infra/production/README.md). Production still
+fails closed until the operator supplies the domain/TLS files, generated
+service secrets, DeepSeek key, fixed Feishu Wiki target, Basic Auth file and an
+external backup directory.
 
 ## Minimal workflow
 
@@ -130,9 +166,6 @@ PRD_AGENT_TEST_DATABASE_DSN="$PRD_AGENT_DATABASE_DSN" \
 npm --prefix web run test
 npm --prefix web run typecheck
 npm --prefix web run build
-
-# Regenerate frontend API types while FastAPI is running:
-npm --prefix web run types:api
 
 PYTHONPATH=src python3 -m prd_agent.eval run-baseline \
   --manifest eval/cases/manifest.json \

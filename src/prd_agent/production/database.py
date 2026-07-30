@@ -7,11 +7,45 @@ from contextvars import ContextVar
 from typing import Callable
 
 
+class RequestConnectionScope:
+    """Own one pooled connection for a request or worker unit.
+
+    Nested store bindings reuse the current connection so repositories that
+    participate in one application unit cannot accidentally observe different
+    transaction snapshots.
+    """
+
+    def __init__(self, pool) -> None:
+        self.pool = pool
+        self._current: ContextVar[object | None] = ContextVar(
+            f"connection-{id(self)}",
+            default=None,
+        )
+
+    @contextmanager
+    def bind(self):
+        current = self._current.get()
+        if current is not None:
+            yield current
+            return
+        with self.pool.connection() as connection:
+            token = self._current.set(connection)
+            try:
+                yield connection
+            finally:
+                self._current.reset(token)
+
+
 class RequestScopedRepository:
     """Delegate repository calls to the connection bound to this request."""
 
-    def __init__(self, pool, repository_factory: Callable[[object], object]) -> None:
-        self.pool = pool
+    def __init__(self, pool_or_scope, repository_factory: Callable[[object], object]) -> None:
+        self.scope = (
+            pool_or_scope
+            if isinstance(pool_or_scope, RequestConnectionScope)
+            else RequestConnectionScope(pool_or_scope)
+        )
+        self.pool = self.scope.pool
         self.repository_factory = repository_factory
         self._current: ContextVar[object | None] = ContextVar(
             f"repository-{id(self)}",
@@ -20,7 +54,7 @@ class RequestScopedRepository:
 
     @contextmanager
     def bind(self):
-        with self.pool.connection() as connection:
+        with self.scope.bind() as connection:
             repository = self.repository_factory(connection)
             token = self._current.set(repository)
             try:
@@ -38,6 +72,7 @@ class RequestScopedRepository:
 class ProductionDatabase:
     def __init__(self, pool) -> None:
         self.pool = pool
+        self.scope = RequestConnectionScope(pool)
 
     @classmethod
     def from_dsn(
@@ -86,7 +121,7 @@ class ProductionDatabase:
         self.pool.close()
 
     def scoped_repository(self, repository_factory) -> RequestScopedRepository:
-        return RequestScopedRepository(self.pool, repository_factory)
+        return RequestScopedRepository(self.scope, repository_factory)
 
     def readiness(self, *, expected_migration: str) -> bool:
         try:

@@ -62,7 +62,7 @@ from prd_agent.workflow.nodes import (
     extract_requirement_brief,
     invoke_validated,
     validate_outline,
-    validate_unit_draft,
+    validate_unit_draft_for_nodes,
 )
 
 
@@ -89,6 +89,15 @@ class WorkflowService:
         self.unit_policy = UnitPolicy()
 
     def start_task(self, command: StartTask) -> WorkflowSnapshot:
+        if not command.idempotency_key.strip():
+            raise InvalidCommand("idempotency key cannot be empty")
+        guard = getattr(self.repository, "idempotency_lock", None)
+        if guard is None:
+            return self._start_task_locked(command)
+        with guard(command.actor_id, command.idempotency_key):
+            return self._start_task_locked(command)
+
+    def _start_task_locked(self, command: StartTask) -> WorkflowSnapshot:
         message = command.message.strip()
         if not message:
             raise InvalidCommand("start message cannot be empty")
@@ -445,6 +454,55 @@ class WorkflowService:
         return self._generate_unit(task, run, outline, unit, brief)
 
     def _generate_unit(self, task, run, outline, unit, brief) -> WorkflowSnapshot:
+        try:
+            return self._generate_unit_inner(
+                task,
+                run,
+                outline,
+                unit,
+                brief,
+            )
+        except Exception as exc:
+            if run.status != RunStatus.FAILED:
+                unit.status = UnitStatus.FAILED
+                outline.confirmation_units = tuple(
+                    unit if item.unit_id == unit.unit_id else item
+                    for item in outline.confirmation_units
+                )
+                task.status = self.task_policy.transition(
+                    task.status,
+                    TaskStatus.FAILED,
+                    current_version=task.version,
+                    expected_version=task.version,
+                )
+                task.version += 1
+                task.updated_at = datetime.now(timezone.utc)
+                run.status = RunStatus.FAILED
+                run.error = str(exc)
+                run.ended_at = datetime.now(timezone.utc)
+                self.repository.save_outline(outline)
+                self.repository.save_task(task)
+                self.repository.save_run(run)
+                self._event(
+                    task.task_id,
+                    "RunFailed",
+                    {"node": "GENERATE_FIRST_UNIT"},
+                )
+                self._checkpoint(
+                    task,
+                    run,
+                    "GENERATE_FIRST_UNIT_FAILED",
+                )
+            raise
+
+    def _generate_unit_inner(
+        self,
+        task,
+        run,
+        outline,
+        unit,
+        brief,
+    ) -> WorkflowSnapshot:
         investigation_context = None
         if self.unit_context_provider is not None:
             # Investigation uses an independent transaction/connection. Persist the
@@ -460,6 +518,11 @@ class WorkflowService:
                 unit=unit,
                 brief=brief,
             )
+        nodes_by_key = {
+            (node.stable_key or node.node_id): node
+            for node in outline.nodes
+            if not unit.node_ids or node.node_id in unit.node_ids
+        }
         try:
             draft = invoke_validated(
                 self.model,
@@ -488,7 +551,10 @@ class WorkflowService:
                     ),
                     "investigation_context": investigation_context,
                 },
-                validate_unit_draft,
+                lambda value: validate_unit_draft_for_nodes(
+                    value,
+                    tuple(nodes_by_key),
+                ),
             )
         except ModelOutputError as exc:
             unit.status = UnitStatus.FAILED
@@ -528,21 +594,8 @@ class WorkflowService:
                     criticality=ClaimCriticality.CRITICAL,
                 ),
             )
-        nodes_by_key = {
-            (node.stable_key or node.node_id): node
-            for node in outline.nodes
-            if not unit.node_ids or node.node_id in unit.node_ids
-        }
         section_drafts = draft["sections"]
         if section_drafts:
-            provided_keys = [item["node_key"] for item in section_drafts]
-            if (
-                len(provided_keys) != len(set(provided_keys))
-                or set(provided_keys) != set(nodes_by_key)
-            ):
-                raise ModelOutputError(
-                    "generated sections must cover every unit node exactly once"
-                )
             unit.section_drafts = tuple(
                 {
                     "node_id": nodes_by_key[item["node_key"]].node_id,
@@ -561,10 +614,6 @@ class WorkflowService:
                     "content": content,
                     "content_hash": self._content_hash(content),
                 },
-            )
-        else:
-            raise ModelOutputError(
-                "a multi-node confirmation unit requires structured sections"
             )
         if self.grounding_service is not None:
             context = investigation_context or {}

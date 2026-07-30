@@ -1,4 +1,4 @@
-import { TaskWorkbench } from "@/components/task-workbench";
+import { AgentTaskWorkbench } from "@/components/agent-task-workbench";
 
 export default async function TaskPage({
   params,
@@ -6,5 +6,5 @@ export default async function TaskPage({
   params: Promise<{ taskId: string }>;
 }) {
   const { taskId } = await params;
-  return <TaskWorkbench taskId={taskId} />;
+  return <AgentTaskWorkbench taskId={taskId} />;
 }

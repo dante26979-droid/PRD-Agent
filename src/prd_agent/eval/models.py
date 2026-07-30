@@ -11,6 +11,8 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from typing import Any, Mapping
 
+from prd_agent.model_api.models import ModelResponse
+
 
 NEED_TYPES = frozenset({"OPTIONAL", "REQUIRED", "NOT_REQUIRED"})
 
@@ -148,13 +150,6 @@ class BaselineConfig:
             raise ValueError("baseline config requires identifiers")
         if self.trials_per_case < 1:
             raise ValueError("trials_per_case must be positive")
-
-
-@dataclass(frozen=True)
-class ModelResponse:
-    output: str
-    token_usage: Mapping[str, Any] = field(default_factory=dict)
-    model_id: str = "stub"
 
 
 @dataclass(frozen=True)

@@ -9,112 +9,71 @@ services:
       - postgres_password
     volumes:
       - postgres-data:/var/lib/postgresql/data
+    expose:
+      - "5432"
+    restart: unless-stopped
+    mem_limit: 512m
+    cpus: "0.45"
+    pids_limit: 128
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U prd_agent -d prd_agent"]
       interval: 5s
       timeout: 5s
       retries: 20
+    logging:
+      options: {max-size: "10m", max-file: "3"}
 
   redis:
     image: redis:8-alpine
-    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
-    volumes:
-      - redis-data:/data
+    command: ["redis-server", "--appendonly", "no", "--maxmemory", "64mb", "--maxmemory-policy", "noeviction"]
+    expose:
+      - "6379"
+    restart: unless-stopped
+    mem_limit: 96m
+    cpus: "0.10"
+    pids_limit: 64
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 5s
       retries: 20
-
-  migrate:
-    build:
-      context: ../..
-      dockerfile: infra/production/Dockerfile
-    command: ["prd-agent-migrate"]
-    environment:
-      PRD_AGENT_DATABASE_DSN_FILE: /run/secrets/database_dsn
-    secrets:
-      - database_dsn
-    depends_on:
-      postgres:
-        condition: service_healthy
-    read_only: true
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-
-  api:
-    build:
-      context: ../..
-      dockerfile: infra/production/Dockerfile
-    environment: &application-environment
-      PRD_AGENT_ENVIRONMENT: production
-      PRD_AGENT_DATABASE_DSN_FILE: /run/secrets/database_dsn
-      PRD_AGENT_BROKER_URL: redis://redis:6379/0
-      PRD_AGENT_OIDC_ISSUER: ${PRD_AGENT_OIDC_ISSUER:?required}
-      PRD_AGENT_OIDC_AUDIENCE: ${PRD_AGENT_OIDC_AUDIENCE:?required}
-      PRD_AGENT_OIDC_JWKS_URL: ${PRD_AGENT_OIDC_JWKS_URL:?required}
-      PRD_AGENT_CORS_ORIGINS: ${PRD_AGENT_CORS_ORIGINS:?required}
-    secrets:
-      - database_dsn
-    depends_on:
-      migrate:
-        condition: service_completed_successfully
-      redis:
-        condition: service_healthy
     read_only: true
     tmpfs:
-      - /tmp:size=64m,noexec,nosuid
+      - /data:size=16m,noexec,nosuid
     security_opt:
       - no-new-privileges:true
     cap_drop:
       - ALL
-    ports:
-      - "8000:8000"
-
-  outbox-publisher:
-    build:
-      context: ../..
-      dockerfile: infra/production/Dockerfile
-    command: ["prd-agent-publisher", "--interval", "1"]
-    environment: *application-environment
-    secrets:
-      - database_dsn
-    depends_on:
-      migrate:
-        condition: service_completed_successfully
-      redis:
-        condition: service_healthy
-    read_only: true
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-
-  scheduler-reconciler:
-    build:
-      context: ../..
-      dockerfile: infra/production/Dockerfile
-    command: ["prd-agent-scheduler", "--interval", "5"]
-    environment: *application-environment
-    secrets:
-      - database_dsn
-    depends_on:
-      migrate:
-        condition: service_completed_successfully
-    read_only: true
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
+    logging:
+      options: {max-size: "10m", max-file: "3"}
 
 secrets:
   postgres_password:
     file: ./secrets/postgres_password.txt
   database_dsn:
     file: ./secrets/database_dsn.txt
+  deepseek_api_key:
+    file: ./secrets/deepseek_api_key
+  proxy_secret:
+    file: ./secrets/proxy_secret.txt
+  agent_rpc_token:
+    file: ./secrets/agent_rpc_token.txt
+  export_confirmation_secret:
+    file: ./secrets/export_confirmation_secret.txt
+  feishu_app_id:
+    file: ./secrets/feishu_app_id.txt
+  feishu_app_secret:
+    file: ./secrets/feishu_app_secret.txt
+  feishu_wiki_node_token:
+    file: ./secrets/feishu_wiki_node_token.txt
+  basic_auth_htpasswd:
+    file: ./secrets/basic_auth.htpasswd
+  tls_certificate:
+    file: ./secrets/tls_certificate.pem
+  tls_private_key:
+    file: ./secrets/tls_private_key.pem
+  backup_encryption_key:
+    file: ./secrets/backup_encryption_key.txt
 
 volumes:
   postgres-data:
-  redis-data:

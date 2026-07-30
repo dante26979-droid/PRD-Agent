@@ -7,6 +7,16 @@ import type {
   TaskDetail,
   TaskList,
 } from "@/lib/api/types";
+import type {
+  AgentRun,
+  AttemptView,
+  ControlTask,
+  DraftView,
+  EvidenceView,
+  PublishPreview as AgentPublishPreview,
+  PublishView,
+  TaskWithRun,
+} from "@/lib/api/agent-types";
 
 const base = "/backend/api/v1";
 
@@ -140,6 +150,79 @@ export function reopenPrd(
 
 export function eventUrl(taskId: string, sequence: number): string {
   return `${base}/tasks/${encodeURIComponent(taskId)}/events?after_sequence=${sequence}`;
+}
+
+export function listAgentTasks(): Promise<{ items: ControlTask[] }> {
+  return request<{ items: ControlTask[] }>("/tasks?limit=50");
+}
+
+export function startAgentTask(message: string): Promise<TaskWithRun> {
+  return command<TaskWithRun>("/tasks/from-message", { message });
+}
+
+export function getAgentTask(taskId: string): Promise<{ task: ControlTask }> {
+  return request<{ task: ControlTask }>(`/tasks/${encodeURIComponent(taskId)}`);
+}
+
+export function listAgentRuns(taskId: string): Promise<{ items: AgentRun[] }> {
+  return request<{ items: AgentRun[] }>(`/tasks/${encodeURIComponent(taskId)}/runs`);
+}
+
+export function getAgentDraft(taskId: string): Promise<DraftView> {
+  return request<DraftView>(`/tasks/${encodeURIComponent(taskId)}/draft`);
+}
+
+export function listAgentEvidence(taskId: string): Promise<{ items: EvidenceView[] }> {
+  return request<{ items: EvidenceView[] }>(`/tasks/${encodeURIComponent(taskId)}/evidence`);
+}
+
+export function listAgentAttempts(taskId: string): Promise<{ items: AttemptView[] }> {
+  return request<{ items: AttemptView[] }>(`/tasks/${encodeURIComponent(taskId)}/attempts`);
+}
+
+export function stopAgentRun(taskId: string, runId: string): Promise<{ run: AgentRun }> {
+  return command<{ run: AgentRun }>(
+    `/tasks/${encodeURIComponent(taskId)}/runs/${encodeURIComponent(runId)}/stop`,
+    {},
+  );
+}
+
+export function retryAgentTask(taskId: string, taskVersion: number): Promise<{ run: AgentRun }> {
+  return command<{ run: AgentRun }>(`/tasks/${encodeURIComponent(taskId)}/retry`, {
+    expected_task_version: taskVersion,
+  });
+}
+
+export function previewAgentPublish(
+  taskId: string,
+  taskVersion: number,
+): Promise<{ preview: AgentPublishPreview }> {
+  return command<{ preview: AgentPublishPreview }>(
+    `/tasks/${encodeURIComponent(taskId)}/publish/feishu/preview`,
+    { expected_task_version: taskVersion },
+  );
+}
+
+export function confirmAgentPublish(
+  taskId: string,
+  preview: AgentPublishPreview,
+): Promise<{ publish: PublishView }> {
+  return command<{ publish: PublishView }>(
+    `/tasks/${encodeURIComponent(taskId)}/publish/feishu`,
+    {
+      publish_id: preview.publish_id,
+      confirmation_token: preview.confirmation_token,
+      expected_task_version: preview.task_version,
+    },
+  );
+}
+
+export function listAgentPublishes(taskId: string): Promise<{ items: PublishView[] }> {
+  return request<{ items: PublishView[] }>(`/tasks/${encodeURIComponent(taskId)}/publishes`);
+}
+
+export function agentEventUrl(taskId: string): string {
+  return `${base}/tasks/${encodeURIComponent(taskId)}/events`;
 }
 
 export function listExports(taskId: string): Promise<ExportList> {

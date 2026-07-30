@@ -1,0 +1,115 @@
+syntax = "proto3";
+
+package agent.v1;
+
+import "agent/v1/agent_execution.proto";
+
+option go_package = "github.com/dante26979-droid/prd-agent/contracts/gen/go/agent/v1;agentv1";
+
+service CapabilityGatewayService {
+	rpc ReadRepositoryTree(ReadRepositoryTreeRequest) returns (ReadRepositoryTreeResponse);
+	rpc ReadRepositoryFile(ReadRepositoryFileRequest) returns (ReadRepositoryFileResponse);
+	rpc SearchRepository(SearchRepositoryRequest) returns (SearchRepositoryResponse);
+	rpc SearchPrdCatalog(SearchPrdCatalogRequest) returns (SearchPrdCatalogResponse);
+	rpc FetchPrdSections(FetchPrdSectionsRequest) returns (FetchPrdSectionsResponse);
+	rpc CreateExportIntent(CreateExportIntentRequest) returns (CreateExportIntentResponse);
+}
+
+message CapabilityLease {
+  LeaseContext lease = 1;
+  string contract_version = 2;
+  RequestMeta meta = 3;
+}
+
+message ReadRepositoryTreeRequest {
+  CapabilityLease capability = 1;
+  string binding_id = 2;
+  string revision = 3;
+  string prefix = 4;
+}
+
+message RepositoryTree {
+  repeated string paths = 1;
+}
+
+message ReadRepositoryTreeResponse { RepositoryTree tree = 1; }
+
+message ReadRepositoryFileRequest {
+  CapabilityLease capability = 1;
+  string binding_id = 2;
+  string revision = 3;
+  string path = 4;
+}
+
+message RepositoryFile {
+  string path = 1;
+  bytes content = 2;
+  string content_hash = 3;
+}
+
+message ReadRepositoryFileResponse { RepositoryFile file = 1; }
+
+message SearchRepositoryRequest {
+  CapabilityLease capability = 1;
+  string binding_id = 2;
+  string revision = 3;
+  string query = 4;
+  int32 limit = 5;
+}
+
+message RepositorySearchHit {
+  string path = 1;
+  int32 line = 2;
+  string snippet = 3;
+}
+
+message SearchRepositoryResponse {
+  repeated RepositorySearchHit hits = 1;
+}
+
+message SearchPrdCatalogRequest {
+  CapabilityLease capability = 1;
+  string query = 2;
+  int32 limit = 3;
+}
+
+message PrdCatalogHit {
+  string locator_id = 1;
+  string source_revision = 2;
+  string title = 3;
+  string excerpt = 4;
+}
+
+message SearchPrdCatalogResponse {
+  repeated PrdCatalogHit hits = 1;
+}
+
+message FetchPrdSectionsRequest {
+  CapabilityLease capability = 1;
+  repeated string locator_ids = 2;
+}
+
+message PrdSection {
+  string locator_id = 1;
+  string source_revision = 2;
+  string title = 3;
+  string markdown = 4;
+}
+
+message FetchPrdSectionsResponse {
+  repeated PrdSection sections = 1;
+}
+
+message CreateExportIntentRequest {
+  CapabilityLease capability = 1;
+  string task_id = 2;
+  int64 draft_version = 3;
+}
+
+message ExportIntentReceipt {
+  string intent_id = 1;
+  string confirmation_token = 2;
+  string status = 3;
+}
+
+message CreateExportIntentResponse { ExportIntentReceipt receipt = 1; }
