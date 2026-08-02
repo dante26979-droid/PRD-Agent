@@ -77,7 +77,17 @@ PRD_AGENT_REPOSITORY_REFRESH_INTERVAL_SECONDS=30
 PRD_AGENT_MAX_GLOBAL_RUNNABLE=2
 PRD_AGENT_MAX_RUNNABLE_PER_OWNER=1
 PRD_AGENT_MAX_WAITING_RUNS=20
+PRD_AGENT_DEFAULT_WORKFLOW_VERSION=agent-runtime.v1
+PRD_AGENT_ROLLOUT_POLICY_VERSION=<environment-policy-version>
+PRD_AGENT_V4_CANARY_BASIS_POINTS=0
+PRD_AGENT_V4_SHADOW=false
+PRD_AGENT_V4_INTERNAL_IDENTITIES=default:admin
 ```
+
+The production Compose profile forwards these rollout settings to both the API
+assignment writer and Maintenance dispatcher. Keep the default workflow at v1
+and the percentage at zero until the corresponding environment gate passes;
+use the internal identity allowlist for a bounded v4 deployment smoke.
 
 The backup directory must exist before startup. A local directory without an
 off-host copy protects against database corruption but not total server loss.
