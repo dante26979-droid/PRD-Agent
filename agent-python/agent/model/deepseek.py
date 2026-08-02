@@ -111,7 +111,19 @@ class DeepSeekChatClient:
             content = choice["message"]["content"]
             if not isinstance(content, str):
                 raise TypeError("model content must be text")
-            token_usage = dict(payload.get("usage") or {})
+            raw_token_usage = payload.get("usage") or {}
+            if not isinstance(raw_token_usage, Mapping):
+                raise TypeError("model token usage must be an object")
+            # Provider-specific detail objects are not budget counters and are
+            # deliberately excluded from the durable execution ledger. Keep
+            # only bounded, non-negative integer counters with stable names.
+            token_usage = {
+                str(key): value
+                for key, value in raw_token_usage.items()
+                if isinstance(value, int)
+                and not isinstance(value, bool)
+                and value >= 0
+            }
             finish_reason = str(choice.get("finish_reason") or "unknown")
             provider_request_id = response.headers.get("x-request-id") or (
                 str(payload["id"]) if payload.get("id") else None
