@@ -16,25 +16,34 @@ import (
 var repositoryRevisionPattern = regexp.MustCompile(`^[0-9a-f]{40}$`)
 
 type Config struct {
-	DSN                 string
-	MinConns            int32
-	MaxConns            int32
-	MaxGlobalRunnable   int
-	MaxRunnablePerOwner int
-	MaxWaitingRuns      int
-	ConfirmationSecret  string
-	RepositoryBindingID string
-	RepositoryRevision  string
+	DSN                           string
+	SearchPath                    string
+	MinConns                      int32
+	MaxConns                      int32
+	MaxGlobalRunnable             int
+	MaxRunnablePerOwner           int
+	MaxWaitingRuns                int
+	ConfirmationSecret            string
+	RepositoryBindingID           string
+	RepositoryRevision            string
+	DefaultWorkflowVersion        runcontrol.WorkflowVersion
+	DefaultExecutionLedgerVersion runcontrol.ExecutionLedgerVersion
+	DefaultRunBudget              runcontrol.RunBudget
+	RolloutPolicy                 *runcontrol.RolloutPolicy
 }
 
 type PostgresStore struct {
-	pool                *pgxpool.Pool
-	maxGlobalRunnable   int
-	maxRunnablePerOwner int
-	maxWaitingRuns      int
-	confirmationSecret  string
-	repositoryBindingID string
-	repositoryRevision  string
+	pool                          *pgxpool.Pool
+	maxGlobalRunnable             int
+	maxRunnablePerOwner           int
+	maxWaitingRuns                int
+	confirmationSecret            string
+	repositoryBindingID           string
+	repositoryRevision            string
+	defaultWorkflowVersion        runcontrol.WorkflowVersion
+	defaultExecutionLedgerVersion runcontrol.ExecutionLedgerVersion
+	defaultRunBudget              runcontrol.RunBudget
+	rolloutPolicy                 *runcontrol.RolloutPolicy
 }
 
 func NewPostgresStore(ctx context.Context, cfg Config) (*PostgresStore, error) {
@@ -44,6 +53,9 @@ func NewPostgresStore(ctx context.Context, cfg Config) (*PostgresStore, error) {
 	}
 	poolConfig.MinConns = cfg.MinConns
 	poolConfig.MaxConns = cfg.MaxConns
+	if cfg.SearchPath != "" {
+		poolConfig.ConnConfig.RuntimeParams["search_path"] = cfg.SearchPath
+	}
 	poolConfig.MaxConnLifetime = 30 * time.Minute
 	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
 	if err != nil {
@@ -53,14 +65,30 @@ func NewPostgresStore(ctx context.Context, cfg Config) (*PostgresStore, error) {
 		pool.Close()
 		return nil, fmt.Errorf("ping postgres: %w", err)
 	}
+	workflowVersion := runcontrol.DefaultWorkflowVersion(cfg.DefaultWorkflowVersion)
+	ledgerVersion := cfg.DefaultExecutionLedgerVersion
+	if cfg.RolloutPolicy != nil && ledgerVersion == "" {
+		ledgerVersion = runcontrol.ExecutionLedgerVersionV1
+	}
+	if workflowVersion == runcontrol.WorkflowVersionV4 && ledgerVersion == "" {
+		ledgerVersion = runcontrol.ExecutionLedgerVersionV1
+	}
+	budget := cfg.DefaultRunBudget
+	if ledgerVersion == runcontrol.ExecutionLedgerVersionV1 && budget == (runcontrol.RunBudget{}) {
+		budget = runcontrol.RunBudget{MaxModelAttempts: 8, MaxToolCalls: 8, MaxIterations: 12, MaxReplans: 2, MaxSupplements: 2, MaxQualityRepairs: 2, MaxInputTokens: 120000, MaxOutputTokens: 32000, MaxElapsedMS: 1800000}
+	}
 	return &PostgresStore{
-		pool:                pool,
-		maxGlobalRunnable:   positiveOrDefault(cfg.MaxGlobalRunnable, 30),
-		maxRunnablePerOwner: positiveOrDefault(cfg.MaxRunnablePerOwner, 1),
-		maxWaitingRuns:      positiveOrDefault(cfg.MaxWaitingRuns, 100),
-		confirmationSecret:  defaultString(cfg.ConfirmationSecret, "local-publish-confirmation-secret"),
-		repositoryBindingID: cfg.RepositoryBindingID,
-		repositoryRevision:  cfg.RepositoryRevision,
+		pool:                          pool,
+		maxGlobalRunnable:             positiveOrDefault(cfg.MaxGlobalRunnable, 30),
+		maxRunnablePerOwner:           positiveOrDefault(cfg.MaxRunnablePerOwner, 1),
+		maxWaitingRuns:                positiveOrDefault(cfg.MaxWaitingRuns, 100),
+		confirmationSecret:            defaultString(cfg.ConfirmationSecret, "local-publish-confirmation-secret"),
+		repositoryBindingID:           cfg.RepositoryBindingID,
+		repositoryRevision:            cfg.RepositoryRevision,
+		defaultWorkflowVersion:        workflowVersion,
+		defaultExecutionLedgerVersion: ledgerVersion,
+		defaultRunBudget:              budget,
+		rolloutPolicy:                 cfg.RolloutPolicy,
 	}, nil
 }
 
@@ -87,7 +115,20 @@ func (s *PostgresStore) Health(ctx context.Context) error {
 		return err
 	}
 	var ready bool
-	if err := s.pool.QueryRow(ctx, `SELECT to_regclass('public.go_control_tasks') IS NOT NULL AND to_regclass('public.go_publish_intents') IS NOT NULL AND to_regclass('public.go_repository_heads') IS NOT NULL AND to_regclass('public.go_run_artifacts') IS NOT NULL AND to_regclass('public.go_confirmation_unit_versions') IS NOT NULL`).Scan(&ready); err != nil {
+	if err := s.pool.QueryRow(ctx, `SELECT
+		to_regclass(current_schema() || '.go_control_tasks') IS NOT NULL AND
+		to_regclass(current_schema() || '.go_publish_intents') IS NOT NULL AND
+		to_regclass(current_schema() || '.go_repository_heads') IS NOT NULL AND
+		to_regclass(current_schema() || '.go_run_artifacts') IS NOT NULL AND
+		to_regclass(current_schema() || '.go_confirmation_unit_versions') IS NOT NULL AND
+		to_regclass(current_schema() || '.go_run_budget_state') IS NOT NULL AND
+		to_regclass(current_schema() || '.go_run_ledger_entries') IS NOT NULL AND
+		to_regclass(current_schema() || '.go_prd_outline_versions') IS NOT NULL AND
+		to_regclass(current_schema() || '.go_full_review_reports') IS NOT NULL AND
+		to_regclass(current_schema() || '.go_rollout_stage_state') IS NOT NULL AND
+		to_regclass(current_schema() || '.go_rollout_policies') IS NOT NULL AND
+		to_regclass(current_schema() || '.go_rollout_commands') IS NOT NULL AND
+		to_regclass(current_schema() || '.go_rollout_readiness_records') IS NOT NULL`).Scan(&ready); err != nil {
 		return err
 	}
 	if !ready {
@@ -151,6 +192,11 @@ func (s *PostgresStore) CreateTaskWithRun(ctx context.Context, tenantID, ownerID
 		return runcontrol.TaskWithRun{}, err
 	}
 	now := time.Now().UTC()
+	rolloutAssignment, err := s.resolveNewRunTx(ctx, tx, runcontrol.AssignmentRequest{TenantID: tenantID, OwnerID: ownerID, TaskID: taskID}, true)
+	if err != nil {
+		return runcontrol.TaskWithRun{}, err
+	}
+	runWorkflowVersion := rolloutAssignment.AuthoritativeWorkflowVersion
 	repositoryRevision := s.repositoryRevision
 	if s.repositoryBindingID != "" {
 		var cachedRevision string
@@ -169,7 +215,18 @@ func (s *PostgresStore) CreateTaskWithRun(ctx context.Context, tenantID, ownerID
 	if _, err := tx.Exec(ctx, `INSERT INTO go_control_tasks (task_id, tenant_id, owner_id, message, status, version, repository_binding_id, repository_revision, created_at, updated_at) VALUES ($1,$2,$3,$4,'DRAFT',1,NULLIF($5,''),NULLIF($6,''),$7,$7)`, taskID, tenantID, ownerID, message, s.repositoryBindingID, repositoryRevision, now); err != nil {
 		return runcontrol.TaskWithRun{}, err
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO go_agent_runs (run_id, task_id, tenant_id, owner_id, status, queue_slot_acquired, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$7)`, runID, taskID, tenantID, ownerID, status, admitted, now); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO go_agent_runs (run_id, task_id, tenant_id, owner_id, workflow_version, execution_ledger_version, status, queue_slot_acquired, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,NULLIF($6,''),$7,$8,$9,$9)`, runID, taskID, tenantID, ownerID, runWorkflowVersion, s.defaultExecutionLedgerVersion, status, admitted, now); err != nil {
+		return runcontrol.TaskWithRun{}, err
+	}
+	if runWorkflowVersion == runcontrol.WorkflowVersionV4 {
+		if err := insertRunUnitScope(ctx, tx, runID, 1, runcontrol.UnitScope{Purpose: runcontrol.RunPurposePlanOutline}, now); err != nil {
+			return runcontrol.TaskWithRun{}, err
+		}
+	}
+	if err := insertRolloutAssignment(ctx, tx, runID, rolloutAssignment, now); err != nil {
+		return runcontrol.TaskWithRun{}, err
+	}
+	if err := s.initializeBudgetState(ctx, tx, runID, now); err != nil {
 		return runcontrol.TaskWithRun{}, err
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO go_task_events (event_id, task_id, tenant_id, owner_id, sequence, event_type, payload, occurred_at) VALUES ($1,$2,$3,$4,1,'task.created',jsonb_build_object('task_id',$2::text,'run_id',$5::text,'status','DRAFT'),$6)`, "evt-"+taskID+"-1", taskID, tenantID, ownerID, runID, now); err != nil {
@@ -196,7 +253,7 @@ func (s *PostgresStore) CreateTaskWithRun(ctx context.Context, tenantID, ownerID
 	}
 	return runcontrol.TaskWithRun{
 		Task: runcontrol.Task{TaskID: taskID, TenantID: tenantID, OwnerID: ownerID, Message: message, Status: "DRAFT", Version: 1, CreatedAt: now, UpdatedAt: now},
-		Run:  runcontrol.AgentRun{RunID: runID, TaskID: taskID, TenantID: tenantID, OwnerID: ownerID, Status: status, QueueSlotAcquired: admitted, CreatedAt: now, UpdatedAt: now},
+		Run:  runcontrol.AgentRun{RunID: runID, TaskID: taskID, TenantID: tenantID, OwnerID: ownerID, WorkflowVersion: runWorkflowVersion, ExecutionLedgerVersion: s.defaultExecutionLedgerVersion, Status: status, QueueSlotAcquired: admitted, CreatedAt: now, UpdatedAt: now},
 	}, nil
 }
 
@@ -221,7 +278,7 @@ func (s *PostgresStore) RetryTask(ctx context.Context, tenantID, ownerID, taskID
 			return runcontrol.AgentRun{}, runcontrol.ErrInvalidIdempotency
 		}
 		var existing runcontrol.AgentRun
-		if err := scanAgentRun(tx.QueryRow(ctx, `SELECT run_id, task_id, tenant_id, owner_id, status, queue_slot_acquired, attempt_count, COALESCE(lease_id,''), COALESCE(worker_id,''), fencing_token, COALESCE(lease_expires_at,'epoch'::timestamptz), created_at, updated_at FROM go_agent_runs WHERE run_id=$1 AND task_id=$2 AND tenant_id=$3 AND owner_id=$4`, existingRunID, taskID, tenantID, ownerID), &existing); err != nil {
+		if err := scanAgentRun(tx.QueryRow(ctx, `SELECT run_id, task_id, tenant_id, owner_id, workflow_version, COALESCE(execution_ledger_version,''), status, queue_slot_acquired, attempt_count, COALESCE(lease_id,''), COALESCE(worker_id,''), fencing_token, COALESCE(lease_expires_at,'epoch'::timestamptz), created_at, updated_at FROM go_agent_runs WHERE run_id=$1 AND task_id=$2 AND tenant_id=$3 AND owner_id=$4`, existingRunID, taskID, tenantID, ownerID), &existing); err != nil {
 			return runcontrol.AgentRun{}, mapNotFound(err)
 		}
 		if err := tx.Commit(ctx); err != nil {
@@ -271,7 +328,29 @@ func (s *PostgresStore) RetryTask(ctx context.Context, tenantID, ownerID, taskID
 		return runcontrol.AgentRun{}, err
 	}
 	now := time.Now().UTC()
-	if _, err := tx.Exec(ctx, `INSERT INTO go_agent_runs (run_id, task_id, tenant_id, owner_id, status, queue_slot_acquired, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$7)`, runID, taskID, tenantID, ownerID, status, admitted, now); err != nil {
+	runWorkflowVersion := s.defaultWorkflowVersion
+	inheritedAssignment, assignmentErr := loadLatestRolloutAssignmentForTask(ctx, tx, taskID)
+	if assignmentErr == nil {
+		runWorkflowVersion = inheritedAssignment.AuthoritativeWorkflowVersion
+	} else if !errors.Is(assignmentErr, pgx.ErrNoRows) {
+		return runcontrol.AgentRun{}, assignmentErr
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO go_agent_runs (run_id, task_id, tenant_id, owner_id, workflow_version, execution_ledger_version, status, queue_slot_acquired, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,NULLIF($6,''),$7,$8,$9,$9)`, runID, taskID, tenantID, ownerID, runWorkflowVersion, s.defaultExecutionLedgerVersion, status, admitted, now); err != nil {
+		return runcontrol.AgentRun{}, err
+	}
+	if inheritedScope, scopeErr := loadLatestUnitScopeForTask(ctx, tx, taskID); scopeErr == nil {
+		if err := insertRunUnitScope(ctx, tx, runID, taskVersion, inheritedScope, now); err != nil {
+			return runcontrol.AgentRun{}, err
+		}
+	} else if !errors.Is(scopeErr, pgx.ErrNoRows) {
+		return runcontrol.AgentRun{}, scopeErr
+	}
+	if assignmentErr == nil {
+		if err := insertRolloutAssignment(ctx, tx, runID, inheritedAssignment, now); err != nil {
+			return runcontrol.AgentRun{}, err
+		}
+	}
+	if err := s.initializeBudgetState(ctx, tx, runID, now); err != nil {
 		return runcontrol.AgentRun{}, err
 	}
 	if admitted {
@@ -300,7 +379,9 @@ func (s *PostgresStore) RetryTask(ctx context.Context, tenantID, ownerID, taskID
 	}
 	return runcontrol.AgentRun{
 		RunID: runID, TaskID: taskID, TenantID: tenantID, OwnerID: ownerID,
-		Status: status, QueueSlotAcquired: admitted, CreatedAt: now, UpdatedAt: now,
+		WorkflowVersion:        runWorkflowVersion,
+		ExecutionLedgerVersion: s.defaultExecutionLedgerVersion,
+		Status:                 status, QueueSlotAcquired: admitted, CreatedAt: now, UpdatedAt: now,
 	}, nil
 }
 
@@ -310,7 +391,7 @@ func (s *PostgresStore) loadTaskWithRun(ctx context.Context, tx pgx.Tx, tenantID
 		return runcontrol.TaskWithRun{}, err
 	}
 	var run runcontrol.AgentRun
-	if err := tx.QueryRow(ctx, `SELECT run_id, task_id, tenant_id, owner_id, status, queue_slot_acquired, attempt_count, COALESCE(lease_id,''), COALESCE(worker_id,''), fencing_token, COALESCE(lease_expires_at,'epoch'::timestamptz), created_at, updated_at FROM go_agent_runs WHERE task_id=$1 ORDER BY created_at DESC LIMIT 1`, taskID).Scan(&run.RunID, &run.TaskID, &run.TenantID, &run.OwnerID, &run.Status, &run.QueueSlotAcquired, &run.AttemptCount, &run.LeaseID, &run.WorkerID, &run.FencingToken, &run.LeaseExpiresAt, &run.CreatedAt, &run.UpdatedAt); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT run_id, task_id, tenant_id, owner_id, workflow_version, COALESCE(execution_ledger_version,''), status, queue_slot_acquired, attempt_count, COALESCE(lease_id,''), COALESCE(worker_id,''), fencing_token, COALESCE(lease_expires_at,'epoch'::timestamptz), created_at, updated_at FROM go_agent_runs WHERE task_id=$1 ORDER BY created_at DESC LIMIT 1`, taskID).Scan(&run.RunID, &run.TaskID, &run.TenantID, &run.OwnerID, &run.WorkflowVersion, &run.ExecutionLedgerVersion, &run.Status, &run.QueueSlotAcquired, &run.AttemptCount, &run.LeaseID, &run.WorkerID, &run.FencingToken, &run.LeaseExpiresAt, &run.CreatedAt, &run.UpdatedAt); err != nil {
 		return runcontrol.TaskWithRun{}, err
 	}
 	return runcontrol.TaskWithRun{Task: task, Run: run}, nil
@@ -346,7 +427,7 @@ func (s *PostgresStore) ListRuns(ctx context.Context, tenantID, ownerID, taskID 
 	if _, err := s.GetTask(ctx, tenantID, ownerID, taskID); err != nil {
 		return nil, err
 	}
-	rows, err := s.pool.Query(ctx, `SELECT run_id, task_id, tenant_id, owner_id, status, queue_slot_acquired, attempt_count, COALESCE(lease_id,''), COALESCE(worker_id,''), fencing_token, COALESCE(lease_expires_at,'epoch'::timestamptz), created_at, updated_at FROM go_agent_runs WHERE task_id=$1 AND tenant_id=$2 AND owner_id=$3 ORDER BY created_at DESC`, taskID, tenantID, ownerID)
+	rows, err := s.pool.Query(ctx, `SELECT run_id, task_id, tenant_id, owner_id, workflow_version, COALESCE(execution_ledger_version,''), status, queue_slot_acquired, attempt_count, COALESCE(lease_id,''), COALESCE(worker_id,''), fencing_token, COALESCE(lease_expires_at,'epoch'::timestamptz), created_at, updated_at FROM go_agent_runs WHERE task_id=$1 AND tenant_id=$2 AND owner_id=$3 ORDER BY created_at DESC`, taskID, tenantID, ownerID)
 	if err != nil {
 		return nil, err
 	}
@@ -354,7 +435,7 @@ func (s *PostgresStore) ListRuns(ctx context.Context, tenantID, ownerID, taskID 
 	items := make([]runcontrol.AgentRun, 0)
 	for rows.Next() {
 		var item runcontrol.AgentRun
-		if err := rows.Scan(&item.RunID, &item.TaskID, &item.TenantID, &item.OwnerID, &item.Status, &item.QueueSlotAcquired, &item.AttemptCount, &item.LeaseID, &item.WorkerID, &item.FencingToken, &item.LeaseExpiresAt, &item.CreatedAt, &item.UpdatedAt); err != nil {
+		if err := rows.Scan(&item.RunID, &item.TaskID, &item.TenantID, &item.OwnerID, &item.WorkflowVersion, &item.ExecutionLedgerVersion, &item.Status, &item.QueueSlotAcquired, &item.AttemptCount, &item.LeaseID, &item.WorkerID, &item.FencingToken, &item.LeaseExpiresAt, &item.CreatedAt, &item.UpdatedAt); err != nil {
 			return nil, err
 		}
 		items = append(items, item)
@@ -364,7 +445,7 @@ func (s *PostgresStore) ListRuns(ctx context.Context, tenantID, ownerID, taskID 
 
 func (s *PostgresStore) StopRun(ctx context.Context, tenantID, ownerID, taskID, runID string) (runcontrol.AgentRun, error) {
 	var run runcontrol.AgentRun
-	err := s.pool.QueryRow(ctx, `UPDATE go_agent_runs SET status=CASE WHEN status IN ('SUCCEEDED','FAILED','STOPPED') THEN status ELSE 'STOPPING' END, updated_at=NOW() WHERE run_id=$1 AND task_id=$2 AND tenant_id=$3 AND owner_id=$4 RETURNING run_id, task_id, tenant_id, owner_id, status, queue_slot_acquired, attempt_count, COALESCE(lease_id,''), COALESCE(worker_id,''), fencing_token, COALESCE(lease_expires_at,'epoch'::timestamptz), created_at, updated_at`, runID, taskID, tenantID, ownerID).Scan(&run.RunID, &run.TaskID, &run.TenantID, &run.OwnerID, &run.Status, &run.QueueSlotAcquired, &run.AttemptCount, &run.LeaseID, &run.WorkerID, &run.FencingToken, &run.LeaseExpiresAt, &run.CreatedAt, &run.UpdatedAt)
+	err := s.pool.QueryRow(ctx, `UPDATE go_agent_runs SET status=CASE WHEN status IN ('SUCCEEDED','FAILED','STOPPED') THEN status ELSE 'STOPPING' END, updated_at=NOW() WHERE run_id=$1 AND task_id=$2 AND tenant_id=$3 AND owner_id=$4 RETURNING run_id, task_id, tenant_id, owner_id, workflow_version, COALESCE(execution_ledger_version,''), status, queue_slot_acquired, attempt_count, COALESCE(lease_id,''), COALESCE(worker_id,''), fencing_token, COALESCE(lease_expires_at,'epoch'::timestamptz), created_at, updated_at`, runID, taskID, tenantID, ownerID).Scan(&run.RunID, &run.TaskID, &run.TenantID, &run.OwnerID, &run.WorkflowVersion, &run.ExecutionLedgerVersion, &run.Status, &run.QueueSlotAcquired, &run.AttemptCount, &run.LeaseID, &run.WorkerID, &run.FencingToken, &run.LeaseExpiresAt, &run.CreatedAt, &run.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return runcontrol.AgentRun{}, runcontrol.ErrNotFound
 	}
@@ -382,7 +463,7 @@ func (s *PostgresStore) AcquireRun(ctx context.Context, runID, workerID string, 
 	defer tx.Rollback(ctx)
 
 	var run runcontrol.AgentRun
-	err = tx.QueryRow(ctx, `SELECT run_id, task_id, tenant_id, owner_id, status, queue_slot_acquired, attempt_count, COALESCE(lease_id,''), COALESCE(worker_id,''), fencing_token, COALESCE(lease_expires_at,'epoch'::timestamptz), created_at, updated_at FROM go_agent_runs WHERE run_id=$1 FOR UPDATE`, runID).Scan(&run.RunID, &run.TaskID, &run.TenantID, &run.OwnerID, &run.Status, &run.QueueSlotAcquired, &run.AttemptCount, &run.LeaseID, &run.WorkerID, &run.FencingToken, &run.LeaseExpiresAt, &run.CreatedAt, &run.UpdatedAt)
+	err = tx.QueryRow(ctx, `SELECT run_id, task_id, tenant_id, owner_id, workflow_version, COALESCE(execution_ledger_version,''), status, queue_slot_acquired, attempt_count, COALESCE(lease_id,''), COALESCE(worker_id,''), fencing_token, COALESCE(lease_expires_at,'epoch'::timestamptz), created_at, updated_at FROM go_agent_runs WHERE run_id=$1 FOR UPDATE`, runID).Scan(&run.RunID, &run.TaskID, &run.TenantID, &run.OwnerID, &run.WorkflowVersion, &run.ExecutionLedgerVersion, &run.Status, &run.QueueSlotAcquired, &run.AttemptCount, &run.LeaseID, &run.WorkerID, &run.FencingToken, &run.LeaseExpiresAt, &run.CreatedAt, &run.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return runcontrol.AgentRun{}, runcontrol.ErrNotFound
 	}
@@ -406,7 +487,7 @@ func (s *PostgresStore) AcquireRun(ctx context.Context, runID, workerID string, 
 	run.LeaseExpiresAt = now.Add(ttl)
 	run.AttemptCount++
 	run.UpdatedAt = now
-	err = tx.QueryRow(ctx, `UPDATE go_agent_runs SET status='RUNNING', worker_id=$2, lease_id=$3, fencing_token=fencing_token+1, lease_expires_at=$4, attempt_count=attempt_count+1, updated_at=$5 WHERE run_id=$1 RETURNING run_id, task_id, tenant_id, owner_id, status, queue_slot_acquired, attempt_count, COALESCE(lease_id,''), COALESCE(worker_id,''), fencing_token, COALESCE(lease_expires_at,'epoch'::timestamptz), created_at, updated_at`, runID, workerID, leaseID, run.LeaseExpiresAt, now).Scan(&run.RunID, &run.TaskID, &run.TenantID, &run.OwnerID, &run.Status, &run.QueueSlotAcquired, &run.AttemptCount, &run.LeaseID, &run.WorkerID, &run.FencingToken, &run.LeaseExpiresAt, &run.CreatedAt, &run.UpdatedAt)
+	err = tx.QueryRow(ctx, `UPDATE go_agent_runs SET status='RUNNING', worker_id=$2, lease_id=$3, fencing_token=fencing_token+1, lease_expires_at=$4, attempt_count=attempt_count+1, updated_at=$5 WHERE run_id=$1 RETURNING run_id, task_id, tenant_id, owner_id, workflow_version, COALESCE(execution_ledger_version,''), status, queue_slot_acquired, attempt_count, COALESCE(lease_id,''), COALESCE(worker_id,''), fencing_token, COALESCE(lease_expires_at,'epoch'::timestamptz), created_at, updated_at`, runID, workerID, leaseID, run.LeaseExpiresAt, now).Scan(&run.RunID, &run.TaskID, &run.TenantID, &run.OwnerID, &run.WorkflowVersion, &run.ExecutionLedgerVersion, &run.Status, &run.QueueSlotAcquired, &run.AttemptCount, &run.LeaseID, &run.WorkerID, &run.FencingToken, &run.LeaseExpiresAt, &run.CreatedAt, &run.UpdatedAt)
 	if err != nil {
 		return runcontrol.AgentRun{}, err
 	}
@@ -439,7 +520,7 @@ func (s *PostgresStore) CompleteRun(ctx context.Context, lease runcontrol.LeaseC
 		return runcontrol.AgentRun{}, err
 	}
 	defer tx.Rollback(ctx)
-	err = tx.QueryRow(ctx, `UPDATE go_agent_runs SET status=$6, queue_slot_acquired=FALSE, lease_id=NULL, worker_id=NULL, lease_expires_at=NULL, updated_at=$7 WHERE run_id=$1 AND status IN ('RUNNING','STOPPING') AND lease_id=$2 AND worker_id=$3 AND fencing_token=$4 AND lease_expires_at>$5 RETURNING run_id, task_id, tenant_id, owner_id, status, queue_slot_acquired, attempt_count, COALESCE(lease_id,''), COALESCE(worker_id,''), fencing_token, COALESCE(lease_expires_at,'epoch'::timestamptz), created_at, updated_at`, lease.RunID, lease.LeaseID, lease.WorkerID, lease.FencingToken, now, status, now).Scan(&run.RunID, &run.TaskID, &run.TenantID, &run.OwnerID, &run.Status, &run.QueueSlotAcquired, &run.AttemptCount, &run.LeaseID, &run.WorkerID, &run.FencingToken, &run.LeaseExpiresAt, &run.CreatedAt, &run.UpdatedAt)
+	err = tx.QueryRow(ctx, `UPDATE go_agent_runs SET status=$6, queue_slot_acquired=FALSE, lease_id=NULL, worker_id=NULL, lease_expires_at=NULL, updated_at=$7 WHERE run_id=$1 AND status IN ('RUNNING','STOPPING') AND lease_id=$2 AND worker_id=$3 AND fencing_token=$4 AND lease_expires_at>$5 RETURNING run_id, task_id, tenant_id, owner_id, workflow_version, COALESCE(execution_ledger_version,''), status, queue_slot_acquired, attempt_count, COALESCE(lease_id,''), COALESCE(worker_id,''), fencing_token, COALESCE(lease_expires_at,'epoch'::timestamptz), created_at, updated_at`, lease.RunID, lease.LeaseID, lease.WorkerID, lease.FencingToken, now, status, now).Scan(&run.RunID, &run.TaskID, &run.TenantID, &run.OwnerID, &run.WorkflowVersion, &run.ExecutionLedgerVersion, &run.Status, &run.QueueSlotAcquired, &run.AttemptCount, &run.LeaseID, &run.WorkerID, &run.FencingToken, &run.LeaseExpiresAt, &run.CreatedAt, &run.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return runcontrol.AgentRun{}, runcontrol.ErrLeaseLost
 	}

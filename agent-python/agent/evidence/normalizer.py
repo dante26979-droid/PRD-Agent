@@ -32,6 +32,10 @@ def repository_hits_to_evidence(
                 excerpt_hash="sha256:"
                 + hashlib.sha256(excerpt.encode("utf-8")).hexdigest(),
                 excerpt=excerpt,
+                source_kind="github",
+                binding_id=binding_id,
+                source_version=revision,
+                outcome_kind="HIT",
             )
         )
         if len(items) >= limit:

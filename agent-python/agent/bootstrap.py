@@ -20,6 +20,7 @@ from .investigation.models import InvestigationBudget
 from .model import DeepSeekChatClient, ModelResponse
 from .quality import DraftQualityPolicy
 from .result import AgentResult
+from .resume.validator import ResumeValidator, ValidatedAgentRuntime
 
 
 @dataclass(frozen=True)
@@ -36,6 +37,16 @@ class DeterministicAgentLoop:
     ) -> AgentResult:
         if cancel_event is not None and cancel_event.is_set():
             raise RuntimeError("agent run was cancelled")
+        if context.run_purpose != proto.RUN_PURPOSE_UNSPECIFIED:
+            return LangGraphAgentLoop(
+                model=DeterministicStructuredModel(),
+                checkpoint_codec=self.checkpoint_codec,
+                quality_policy=self.quality_policy,
+                required_coverage=(),
+                advanced_loop_mode="enforce",
+                max_supplements=0,
+                max_quality_repairs=1,
+            )(context, cancel_event)
         resumed = _resume_state(self.checkpoint_codec, context)
         message = context.task_message.strip()
         if not message:
@@ -103,7 +114,48 @@ class DeterministicStructuredModel:
     def complete(self, system_prompt: str, user_prompt: str) -> ModelResponse:
         request = json.loads(user_prompt)
         task_message = str(request.get("task_message", "")).strip()
-        if request.get("quality_issues"):
+        unit_operation = str(request.get("unit_operation", ""))
+        scope = request.get("unit_scope") if isinstance(request.get("unit_scope"), dict) else {}
+        if unit_operation == "PLAN_OUTLINE":
+            output = {
+                "schema_version": "outline-candidate.v1",
+                "title": task_message or "PRD",
+                "requirement_size": "SMALL",
+                "nodes": [
+                    {
+                        "node_key": "requirements",
+                        "parent_key": "",
+                        "ordinal": 1,
+                        "title": "需求与验收",
+                        "questions": ["目标和验收标准是什么？"],
+                        "required_content": ["目标", "验收标准"],
+                        "unit_key": "requirements",
+                    }
+                ],
+                "units": [
+                    {
+                        "unit_key": "requirements",
+                        "title": "需求与验收",
+                        "ordinal": 1,
+                        "node_keys": ["requirements"],
+                        "depends_on": [],
+                    }
+                ],
+            }
+            return ModelResponse(
+                output=json.dumps(output, ensure_ascii=False),
+                token_usage={"total_tokens": 0},
+                model_id="deterministic-structured-v1",
+            )
+        if unit_operation in {"GENERATE_UNIT", "REVISE_UNIT"}:
+            title = str(scope.get("current_unit_title", "需求单元"))
+            markdown = (
+                f"# {title}\n\n"
+                f"{task_message}\n\n"
+                "## 验收标准\n\n"
+                "- 前置条件：需求范围已确认；操作：执行目标流程；预期结果：结果可验证。\n"
+            )
+        elif request.get("quality_issues"):
             markdown = str(request.get("markdown", "")).strip()
         else:
             markdown = (
@@ -138,6 +190,16 @@ class RemoteAgentLoop:
         cancel_event: threading.Event | None = None,
     ) -> AgentResult:
         _raise_if_cancelled(cancel_event)
+        if context.run_purpose != proto.RUN_PURPOSE_UNSPECIFIED:
+            return LangGraphAgentLoop(
+                model=self.model,
+                checkpoint_codec=self.checkpoint_codec,
+                quality_policy=self.quality_policy,
+                capability_factory=self.capability_factory,
+                advanced_loop_mode="enforce",
+                max_supplements=0,
+                max_quality_repairs=1,
+            )(context, cancel_event)
         resumed = _resume_state(self.checkpoint_codec, context)
         request_payload = {
             "run_id": context.run_id,
@@ -390,7 +452,7 @@ def build_agent_loop(
                 capability_factory=capability_factory,
                 run_token_budget=settings.llm.run_token_budget,
             )
-        return LangGraphAgentLoop(
+        loop = LangGraphAgentLoop(
             model=DeepSeekChatClient(settings.llm, transport=transport),
             checkpoint_codec=CheckpointCodec(),
             quality_policy=DraftQualityPolicy(max_bytes=settings.max_draft_bytes),
@@ -406,8 +468,9 @@ def build_agent_loop(
             max_supplements=settings.llm.max_supplements,
             max_quality_repairs=settings.llm.max_quality_repairs,
         )
+        return ValidatedAgentRuntime(ResumeValidator(CheckpointCodec()), loop)
     if settings.advanced_loop_mode == "enforce":
-        return LangGraphAgentLoop(
+        loop = LangGraphAgentLoop(
             model=DeterministicStructuredModel(),
             checkpoint_codec=CheckpointCodec(),
             quality_policy=DraftQualityPolicy(max_bytes=settings.max_draft_bytes),
@@ -416,9 +479,9 @@ def build_agent_loop(
             max_supplements=0,
             max_quality_repairs=1,
         )
+        return ValidatedAgentRuntime(ResumeValidator(CheckpointCodec()), loop)
     return DeterministicAgentLoop(
-        CheckpointCodec(),
-        DraftQualityPolicy(max_bytes=settings.max_draft_bytes),
+        CheckpointCodec(), DraftQualityPolicy(max_bytes=settings.max_draft_bytes)
     )
 
 

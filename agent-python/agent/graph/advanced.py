@@ -11,11 +11,13 @@ from agent.confirmation import build_confirmation_units
 from agent.context import RunContext
 from agent.draft import Claim, DraftBundle
 from agent.grounding import (
+    GroundingModule,
     GroundingOutcome,
     GroundingStatus,
     assess_grounding,
     materialize_unknowns,
 )
+from agent.knowledge import KnowledgeBundle
 from agent.quality import QualityOutcome, check_advanced_quality
 from agent.runtime import RuntimeEventSink
 from agent.v1 import agent_execution_pb2 as proto
@@ -34,6 +36,10 @@ class AdvancedLoopRunner:
     generate_draft: Callable[[AgentState], tuple[str, int]]
     repair_draft: Callable[[AgentState, tuple[dict[str, object], ...]], tuple[str, int]]
     supplement: Callable[[str], tuple[proto.EvidenceItem, ...]] | None
+    knowledge_bundle: KnowledgeBundle | None = None
+    knowledge_provider: Callable[[], KnowledgeBundle | None] | None = None
+    supplement_investigation: Callable[[AgentState, Claim], AgentState] | None = None
+    has_remaining_tool_budget: Callable[[], bool] | None = None
     max_supplements: int = 1
     max_repairs: int = 1
 
@@ -100,22 +106,47 @@ class AdvancedLoopRunner:
                 "draft_bundle": bundle.as_dict(),
                 "draft_artifact_key": artifact.artifact_key,
                 "draft_artifact_hash": artifact.content_hash,
+                "draft_artifact_type": artifact.artifact_type,
+                "draft_artifact_generation": artifact.generation,
+                "draft_artifact_request_hash": artifact.request_hash,
                 "token_usage": int(state.get("token_usage", 0)) + tokens,
             }
             return self._checkpoint(updated, LoopCheckpointStatus.DRAFTED)
 
         def ground(state: AgentState):
             bundle = self._bundle(state)
-            findings, outcome = assess_grounding(
-                bundle,
-                available_evidence_refs=state.get("evidence_refs", ()),
-                supplement_count=int(state.get("supplement_count", 0)),
-                max_supplements=self.max_supplements,
-                has_remaining_tool_budget=(
-                    self.supplement is not None
-                    and int(state.get("tool_call_count", 0)) < 8
+            grounding_kwargs = {
+                "supplement_count": int(state.get("supplement_count", 0)),
+                "max_supplements": self.max_supplements,
+                "has_remaining_tool_budget": (
+                    (
+                        self.supplement is not None
+                        or self.supplement_investigation is not None
+                    )
+                    and (
+                        self.has_remaining_tool_budget()
+                        if self.has_remaining_tool_budget is not None
+                        else True
+                    )
                 ),
+            }
+            knowledge = (
+                self.knowledge_provider()
+                if self.knowledge_provider is not None
+                else self.knowledge_bundle
             )
+            if knowledge is not None:
+                findings, outcome = GroundingModule().assess(
+                    bundle,
+                    knowledge,
+                    **grounding_kwargs,
+                )
+            else:
+                findings, outcome = assess_grounding(
+                    bundle,
+                    available_evidence_refs=state.get("evidence_refs", ()),
+                    **grounding_kwargs,
+                )
             report = {
                 "schema_version": "grounding-report.v1",
                 "draft_generation": bundle.generation,
@@ -132,6 +163,10 @@ class AdvancedLoopRunner:
                 "grounding_findings": report["findings"],
                 "grounding_outcome": outcome.value,
                 "grounding_artifact_key": report_artifact.artifact_key,
+                "grounding_artifact_hash": report_artifact.content_hash,
+                "grounding_artifact_type": report_artifact.artifact_type,
+                "grounding_artifact_generation": report_artifact.generation,
+                "grounding_artifact_request_hash": report_artifact.request_hash,
             }
             if outcome == GroundingOutcome.PARTIAL:
                 grounded_bundle = materialize_unknowns(bundle, findings)
@@ -148,17 +183,15 @@ class AdvancedLoopRunner:
                             "draft_bundle": grounded_bundle.as_dict(),
                             "draft_artifact_key": draft_artifact.artifact_key,
                             "draft_artifact_hash": draft_artifact.content_hash,
+                            "draft_artifact_type": draft_artifact.artifact_type,
+                            "draft_artifact_generation": draft_artifact.generation,
+                            "draft_artifact_request_hash": draft_artifact.request_hash,
                         }
                     )
             status = LoopCheckpointStatus(outcome.value)
             return self._checkpoint(updated, status)
 
         def supplement(state: AgentState):
-            if self.supplement is None:
-                return self._checkpoint(
-                    {**state, "grounding_outcome": GroundingOutcome.PARTIAL.value},
-                    LoopCheckpointStatus.GROUNDING_PARTIAL,
-                )
             bundle = self._bundle(state)
             unsupported = {
                 str(item["claim_id"])
@@ -176,6 +209,21 @@ class AdvancedLoopRunner:
             )
             if target is None:
                 return self._checkpoint(state, LoopCheckpointStatus.GROUNDED)
+            if self.supplement_investigation is not None:
+                updated = self.supplement_investigation(state, target)
+                return self._checkpoint(
+                    {
+                        **updated,
+                        "supplement_count": int(state.get("supplement_count", 0))
+                        + 1,
+                    },
+                    LoopCheckpointStatus.DRAFTED,
+                )
+            if self.supplement is None:
+                return self._checkpoint(
+                    {**state, "grounding_outcome": GroundingOutcome.PARTIAL.value},
+                    LoopCheckpointStatus.GROUNDING_PARTIAL,
+                )
             items = self.supplement(target.statement)
             if items:
                 self.sink.evidence(items)
@@ -217,6 +265,9 @@ class AdvancedLoopRunner:
                 "draft_bundle": revised.as_dict(),
                 "draft_artifact_key": artifact.artifact_key,
                 "draft_artifact_hash": artifact.content_hash,
+                "draft_artifact_type": artifact.artifact_type,
+                "draft_artifact_generation": artifact.generation,
+                "draft_artifact_request_hash": artifact.request_hash,
                 "evidence_refs": references,
                 "observations": observations,
                 "supplement_count": int(state.get("supplement_count", 0)) + 1,
@@ -252,6 +303,10 @@ class AdvancedLoopRunner:
                     "quality_issues": report["issues"],
                     "quality_outcome": outcome.value,
                     "quality_artifact_key": artifact.artifact_key,
+                    "quality_artifact_hash": artifact.content_hash,
+                    "quality_artifact_type": artifact.artifact_type,
+                    "quality_artifact_generation": artifact.generation,
+                    "quality_artifact_request_hash": artifact.request_hash,
                 },
                 LoopCheckpointStatus(outcome.value),
             )
@@ -290,6 +345,10 @@ class AdvancedLoopRunner:
                     **state,
                     "confirmation_units": list(units),
                     "confirmation_artifact_key": artifact.artifact_key,
+                    "confirmation_artifact_hash": artifact.content_hash,
+                    "confirmation_artifact_type": artifact.artifact_type,
+                    "confirmation_artifact_generation": artifact.generation,
+                    "confirmation_artifact_request_hash": artifact.request_hash,
                 },
                 LoopCheckpointStatus.CONFIRMATION_UNITS_BUILT,
             )

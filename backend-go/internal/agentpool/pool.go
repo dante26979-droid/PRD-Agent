@@ -19,9 +19,10 @@ import (
 )
 
 var (
-	ErrPoolSaturated = errors.New("agent RPC pool is saturated")
-	ErrPoolDraining  = errors.New("agent RPC pool is draining")
-	ErrNoWorker      = errors.New("no agent worker is available")
+	ErrPoolSaturated      = errors.New("agent RPC pool is saturated")
+	ErrPoolDraining       = errors.New("agent RPC pool is draining")
+	ErrNoWorker           = errors.New("no agent worker is available")
+	ErrNoCompatibleWorker = errors.New("no compatible agent worker is available")
 )
 
 type EventStream interface {
@@ -41,11 +42,18 @@ type WorkerControlClient interface {
 	Cancel(ctx context.Context, request *agentv1.CancelRunRequest) (bool, error)
 }
 
+type WorkerHealthClient interface {
+	Health(context.Context, string) (*agentv1.HealthResponse, error)
+}
+
 type ClientSlot struct {
-	WorkerID    string
-	Client      WorkerClient
-	MaxInflight int
-	Close       func() error
+	WorkerID                         string
+	Client                           WorkerClient
+	MaxInflight                      int
+	Close                            func() error
+	SupportedWorkflowVersions        []string
+	SupportedExecutionLedgerVersions []string
+	CapabilitiesUnknown              bool
 }
 
 type ExecutionResult struct {
@@ -68,10 +76,12 @@ type Pool struct {
 }
 
 type workerSlot struct {
-	workerID string
-	client   WorkerClient
-	tokens   chan struct{}
-	close    func() error
+	workerID                         string
+	client                           WorkerClient
+	tokens                           chan struct{}
+	close                            func() error
+	supportedWorkflowVersions        map[string]struct{}
+	supportedExecutionLedgerVersions map[string]struct{}
 }
 
 func NewPool(slots []ClientSlot) (*Pool, error) {
@@ -87,11 +97,29 @@ func NewPool(slots []ClientSlot) (*Pool, error) {
 		if maxInflight < 1 {
 			maxInflight = 1
 		}
+		versions := slot.SupportedWorkflowVersions
+		if len(versions) == 0 && !slot.CapabilitiesUnknown {
+			versions = []string{"agent-runtime.v1"}
+		}
+		supported := make(map[string]struct{}, len(versions))
+		for _, version := range versions {
+			if version != "" {
+				supported[version] = struct{}{}
+			}
+		}
+		ledgerVersions := make(map[string]struct{}, len(slot.SupportedExecutionLedgerVersions))
+		for _, version := range slot.SupportedExecutionLedgerVersions {
+			if version != "" {
+				ledgerVersions[version] = struct{}{}
+			}
+		}
 		pool.slots = append(pool.slots, &workerSlot{
-			workerID: slot.WorkerID,
-			client:   slot.Client,
-			tokens:   make(chan struct{}, maxInflight),
-			close:    slot.Close,
+			workerID:                         slot.WorkerID,
+			client:                           slot.Client,
+			tokens:                           make(chan struct{}, maxInflight),
+			close:                            slot.Close,
+			supportedWorkflowVersions:        supported,
+			supportedExecutionLedgerVersions: ledgerVersions,
 		})
 	}
 	return pool, nil
@@ -120,10 +148,11 @@ func NewGRPCPool(ctx context.Context, endpoints []string, maxInflight int, token
 			return nil, fmt.Errorf("dial agent worker %s: %w", endpoint, err)
 		}
 		slots = append(slots, ClientSlot{
-			WorkerID:    fmt.Sprintf("worker-%d", index+1),
-			Client:      grpcWorkerClient{client: agentv1.NewAgentWorkerServiceClient(conn), token: token},
-			MaxInflight: maxInflight,
-			Close:       conn.Close,
+			WorkerID:            fmt.Sprintf("worker-%d", index+1),
+			Client:              grpcWorkerClient{client: agentv1.NewAgentWorkerServiceClient(conn), token: token},
+			MaxInflight:         maxInflight,
+			Close:               conn.Close,
+			CapabilitiesUnknown: true,
 		})
 	}
 	return NewPool(slots)
@@ -154,6 +183,13 @@ func (c grpcWorkerClient) Cancel(ctx context.Context, request *agentv1.CancelRun
 	return response.GetAccepted(), nil
 }
 
+func (c grpcWorkerClient) Health(ctx context.Context, workerID string) (*agentv1.HealthResponse, error) {
+	return c.client.Health(c.authorize(ctx), &agentv1.HealthRequest{
+		Meta:     &agentv1.RequestMeta{ContractVersion: "agent-execution.v2", RequestId: "health-" + workerID, CorrelationId: workerID},
+		WorkerId: workerID,
+	})
+}
+
 func (c grpcWorkerClient) authorize(ctx context.Context) context.Context {
 	if c.token == "" {
 		return ctx
@@ -174,11 +210,66 @@ func (p *Pool) Execute(ctx context.Context, request *agentv1.ExecuteRunRequest) 
 }
 
 func (p *Pool) Reserve(workerID string) (*Reservation, error) {
-	slot, err := p.acquire(workerID)
+	slot, err := p.acquire(workerID, "", "")
 	if err != nil {
 		return nil, err
 	}
 	return &Reservation{pool: p, slot: slot}, nil
+}
+
+func (p *Pool) ReserveForWorkflow(workflowVersion string) (*Reservation, error) {
+	return p.ReserveForRun(workflowVersion, "")
+}
+
+func (p *Pool) ReserveForRun(workflowVersion, executionLedgerVersion string) (*Reservation, error) {
+	if workflowVersion == "" {
+		return nil, ErrNoCompatibleWorker
+	}
+	slot, err := p.acquire("", workflowVersion, executionLedgerVersion)
+	if err != nil {
+		return nil, err
+	}
+	return &Reservation{pool: p, slot: slot}, nil
+}
+
+// RefreshCapabilities makes gRPC slots eligible only after a successful
+// Worker Health response. Empty capability fields retain legacy-v1 support.
+func (p *Pool) RefreshCapabilities(ctx context.Context) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	var joined error
+	for _, slot := range p.slots {
+		client, ok := slot.client.(WorkerHealthClient)
+		if !ok {
+			continue
+		}
+		response, err := client.Health(ctx, slot.workerID)
+		if err != nil {
+			slot.supportedWorkflowVersions = map[string]struct{}{}
+			slot.supportedExecutionLedgerVersions = map[string]struct{}{}
+			joined = errors.Join(joined, fmt.Errorf("health %s: %w", slot.workerID, err))
+			continue
+		}
+		versions := response.GetSupportedWorkflowVersions()
+		if len(versions) == 0 {
+			versions = []string{"agent-runtime.v1"}
+		}
+		supported := make(map[string]struct{}, len(versions))
+		for _, version := range versions {
+			if version != "" {
+				supported[version] = struct{}{}
+			}
+		}
+		slot.supportedWorkflowVersions = supported
+		ledgers := make(map[string]struct{}, len(response.GetSupportedExecutionLedgerVersions()))
+		for _, version := range response.GetSupportedExecutionLedgerVersions() {
+			if version != "" {
+				ledgers[version] = struct{}{}
+			}
+		}
+		slot.supportedExecutionLedgerVersions = ledgers
+	}
+	return joined
 }
 
 func (r *Reservation) WorkerID() string { return r.slot.workerID }
@@ -256,7 +347,7 @@ func (r *Reservation) Release() {
 	r.pool.release(r.slot)
 }
 
-func (p *Pool) acquire(workerID string) (*workerSlot, error) {
+func (p *Pool) acquire(workerID, workflowVersion, executionLedgerVersion string) (*workerSlot, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.draining {
@@ -266,17 +357,32 @@ func (p *Pool) acquire(workerID string) (*workerSlot, error) {
 		return nil, ErrNoWorker
 	}
 	start := int(p.next.Add(1) % uint64(len(p.slots)))
+	compatible := workflowVersion == "" && executionLedgerVersion == ""
 	for offset := 0; offset < len(p.slots); offset++ {
 		slot := p.slots[(start+offset)%len(p.slots)]
 		if workerID != "" && slot.workerID != workerID {
 			continue
 		}
+		if workflowVersion != "" {
+			if _, ok := slot.supportedWorkflowVersions[workflowVersion]; !ok {
+				continue
+			}
+		}
+		if executionLedgerVersion != "" {
+			if _, ok := slot.supportedExecutionLedgerVersions[executionLedgerVersion]; !ok {
+				continue
+			}
+		}
+		compatible = true
 		select {
 		case slot.tokens <- struct{}{}:
 			p.active.Add(1)
 			return slot, nil
 		default:
 		}
+	}
+	if !compatible {
+		return nil, ErrNoCompatibleWorker
 	}
 	return nil, ErrPoolSaturated
 }

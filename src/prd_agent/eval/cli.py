@@ -6,6 +6,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+import re
 
 from .case_loader import load_dataset
 from .models import BaselineConfig, ModelResponse
@@ -14,7 +15,9 @@ from .bounded_investigation import BoundedInvestigationBaseline
 from .single_retrieval import SingleRetrievalBaseline
 from .postgres_store import PostgresRunStore
 from .prompt_baseline import DirectPromptBaseline
+from .langgraph_runtime import LangGraphRuntimeBaseline
 from .report import build_report
+from .gates import EvalGateManifest, EvalGateReport, evaluate_gate
 from .runner import BaselineRunner, InMemoryRunStore
 from prd_agent.workflow.stub_model import HeuristicWorkflowModel
 
@@ -40,6 +43,10 @@ class StubModel:
 
 def _load_config(path: Path) -> BaselineConfig:
     value = json.loads(path.read_text(encoding="utf-8"))
+    options = dict(value.get("budget", {}))
+    for name in ("workflow_version", "fixture_path", "execution_mode"):
+        if name in value:
+            options[name] = value[name]
     return BaselineConfig(
         config_id=str(value["config_id"]),
         prompt_version=str(value["prompt_version"]),
@@ -47,8 +54,22 @@ def _load_config(path: Path) -> BaselineConfig:
         dataset_version=str(value["dataset_version"]),
         trials_per_case=int(value.get("trials_per_case", 3)),
         timeout_seconds=float(value.get("timeout_seconds", 120)),
-        options=dict(value.get("budget", {})),
+        options=options,
     )
+
+
+def _select_baseline(config: BaselineConfig, workspace_root: Path):
+    if config.config_id.startswith("langgraph-runtime-"):
+        fixture = config.options.get("fixture_path")
+        fixture_path = workspace_root / str(fixture) if fixture else None
+        return StubModel(), LangGraphRuntimeBaseline(workspace_root, fixture_path)
+    if config.config_id.startswith("bounded-investigation"):
+        return HeuristicWorkflowModel(), BoundedInvestigationBaseline(workspace_root)
+    if config.config_id.startswith("single-retrieval"):
+        return HeuristicWorkflowModel(), SingleRetrievalBaseline(workspace_root)
+    if config.config_id.startswith("minimal-workflow"):
+        return HeuristicWorkflowModel(), MinimalWorkflowBaseline()
+    return StubModel(), DirectPromptBaseline()
 
 
 def validate_dataset_command(args: argparse.Namespace) -> int:
@@ -70,18 +91,9 @@ def validate_dataset_command(args: argparse.Namespace) -> int:
 def run_baseline_command(args: argparse.Namespace) -> int:
     dataset = load_dataset(args.manifest)
     config = _load_config(Path(args.config))
-    if config.config_id.startswith("bounded-investigation"):
-        model = HeuristicWorkflowModel()
-        baseline = BoundedInvestigationBaseline(Path.cwd())
-    elif config.config_id.startswith("single-retrieval"):
-        model = HeuristicWorkflowModel()
-        baseline = SingleRetrievalBaseline(Path.cwd())
-    elif config.config_id.startswith("minimal-workflow"):
-        model = HeuristicWorkflowModel()
-        baseline = MinimalWorkflowBaseline()
-    else:
-        model = StubModel()
-        baseline = DirectPromptBaseline()
+    if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}", config.config_id):
+        raise ValueError("baseline config_id is not a safe report filename")
+    model, baseline = _select_baseline(config, Path.cwd())
     if args.dsn:
         store = PostgresRunStore.from_dsn(args.dsn)
     else:
@@ -96,6 +108,16 @@ def run_baseline_command(args: argparse.Namespace) -> int:
     return 0 if report.failed_runs == 0 else 1
 
 
+def evaluate_gate_command(args: argparse.Namespace) -> int:
+    manifest_value = json.loads(Path(args.gate).read_text(encoding="utf-8"))
+    report_value = json.loads(Path(args.report).read_text(encoding="utf-8"))
+    manifest = EvalGateManifest.from_dict(manifest_value)
+    report = EvalGateReport.from_dict(report_value)
+    decision = evaluate_gate(manifest, report)
+    print(json.dumps(decision.as_dict(), ensure_ascii=False, sort_keys=True))
+    return 0 if decision.passed else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="prd-agent-eval")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -108,6 +130,10 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--dsn", default=os.environ.get("PRD_AGENT_DATABASE_DSN"))
     run.add_argument("--output-dir", default="eval/reports")
     run.set_defaults(handler=run_baseline_command)
+    gate = subparsers.add_parser("evaluate-gate")
+    gate.add_argument("--gate", required=True)
+    gate.add_argument("--report", required=True)
+    gate.set_defaults(handler=evaluate_gate_command)
     return parser
 
 

@@ -283,6 +283,125 @@ def test_unsupported_current_state_triggers_one_targeted_supplement():
     assert statuses.count("DRAFTED") == 2
 
 
+def test_v4_targeted_supplement_uses_knowledge_without_attaching_all_refs() -> None:
+    class Model:
+        def __init__(self):
+            self.outputs = [
+                {
+                    "question": "订单服务当前如何实现？",
+                    "suggested_requiredness": "OPTIONAL",
+                    "need_kind": "CODE_LOCATION_ONLY",
+                    "source_types": ["CODE"],
+                    "fallback": "未确认内容标记为 Unknown",
+                },
+                {
+                    "action": {
+                        "tool_id": "search_repository",
+                        "arguments": {"query": "order service"},
+                        "purpose": "定位订单服务",
+                        "target_coverage": ["repository_structure"],
+                    }
+                },
+                {
+                    "markdown": "## 当前实现\n\n订单路由已经存在。",
+                    "units": [
+                        {
+                            "unit_key": "current",
+                            "title": "当前实现",
+                            "order": 10,
+                            "markdown": "## 当前实现\n\n订单路由已经存在。",
+                        }
+                    ],
+                    "claims": [
+                        {
+                            "unit_key": "current",
+                            "claim_type": "CURRENT_STATE",
+                            "criticality": "BLOCKING",
+                            "statement": "order route",
+                            "evidence_refs": [],
+                        }
+                    ],
+                },
+            ]
+
+        def complete(self, _system, _user):
+            if not self.outputs:
+                raise AssertionError("unexpected model call")
+            return ModelResponse(
+                output=json.dumps(self.outputs.pop(0), ensure_ascii=False),
+                token_usage={"total_tokens": 3},
+                model_id="structured-test",
+            )
+
+    class Gateway:
+        def __init__(self):
+            self.queries = []
+
+        def search_repository(self, **kwargs):
+            query = kwargs["query"]
+            self.queries.append(query)
+            snippet = (
+                "class order service: ..."
+                if query == "order service"
+                else "def order_route(): ..."
+            )
+            return (RepositorySearchHit("orders.py", 1, snippet),)
+
+        def close(self):
+            pass
+
+    gateway = Gateway()
+    sink = BufferedRuntimeEventSink()
+    context = RunContext(
+        run_id="run-v4-supplement",
+        tenant_id="tenant",
+        owner_id="owner",
+        task_id="task-v4-supplement",
+        task_message="梳理订单服务和订单路由现状",
+        task_version=1,
+        workflow_version="agent-runtime.v4",
+        checkpoint=b"",
+        repository_binding_id="binding-1",
+        repository_revision="a" * 40,
+        execution_ledger_version="run-ledger.v1",
+        run_budget=proto.RunBudget(
+            max_model_attempts=4,
+            max_tool_calls=3,
+            max_iterations=3,
+            max_replans=1,
+            max_supplements=1,
+            max_quality_repairs=1,
+            max_input_tokens=100_000,
+            max_output_tokens=20_000,
+            max_elapsed_ms=60_000,
+        ),
+        consumed_budget=proto.ConsumedBudget(),
+        event_sink=sink,
+    )
+
+    result = LangGraphAgentLoop(
+        model=Model(),
+        checkpoint_codec=CheckpointCodec(),
+        quality_policy=DraftQualityPolicy(),
+        capability_factory=lambda _context: gateway,
+        advanced_loop_mode="enforce",
+        max_supplements=1,
+    )(context)
+    payload = json.loads(result.draft_patch)
+    draft_artifacts = [
+        json.loads(item.content)
+        for item in sink.artifacts
+        if item.artifact_type == "DRAFT_BUNDLE"
+    ]
+
+    assert gateway.queries == ["order service", "order route"]
+    assert payload["grounding_outcome"] == "GROUNDED"
+    assert any(
+        item.artifact_type == "SUPPLEMENT_NEED_PLAN" for item in sink.artifacts
+    )
+    assert draft_artifacts[-1]["claims"][0]["evidence_refs"] == []
+
+
 def test_quality_repair_reenters_draft_and_grounding_once():
     broken = DraftBundle(
         schema_version="draft-bundle.v1",

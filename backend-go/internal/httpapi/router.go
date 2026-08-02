@@ -123,6 +123,10 @@ func NewSecureRouter(store runcontrol.Store, resolver PrincipalResolver, publicO
 	group.POST("/tasks/:taskID/retry", api.retryTask)
 	group.GET("/tasks/:taskID/draft", api.getDraft)
 	group.GET("/tasks/:taskID/draft.md", api.getDraftMarkdown)
+	group.GET("/tasks/:taskID/outline", api.getReviewOutline)
+	group.GET("/tasks/:taskID/review", api.getReviewProjection)
+	group.GET("/tasks/:taskID/full-review", api.getFullReview)
+	group.POST("/tasks/:taskID/outline/confirm", api.confirmReviewOutline)
 	group.GET("/tasks/:taskID/confirmation-units", api.listConfirmationUnits)
 	group.POST("/tasks/:taskID/confirmation-units/:unitVersionID/confirm", api.confirmConfirmationUnit)
 	group.POST("/tasks/:taskID/confirmation-units/:unitVersionID/reopen", api.reopenConfirmationUnit)
@@ -414,6 +418,73 @@ func (a *Router) listConfirmationUnits(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"items": items})
+}
+
+func (a *Router) getReviewOutline(c *gin.Context) {
+	outline, err := a.store.GetReviewOutline(
+		c.Request.Context(), c.GetString("tenant_id"), c.GetString("owner_id"), c.Param("taskID"),
+	)
+	if err != nil {
+		writeStoreError(c, err)
+		return
+	}
+	units, err := a.store.ListReviewUnits(
+		c.Request.Context(), c.GetString("tenant_id"), c.GetString("owner_id"), c.Param("taskID"),
+	)
+	if err != nil {
+		writeStoreError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"outline": outline, "units": units})
+}
+
+func (a *Router) getReviewProjection(c *gin.Context) {
+	view, err := a.store.GetReviewProjection(
+		c.Request.Context(), c.GetString("tenant_id"), c.GetString("owner_id"), c.Param("taskID"),
+	)
+	if err != nil {
+		writeStoreError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, view)
+}
+
+func (a *Router) getFullReview(c *gin.Context) {
+	report, err := a.store.GetFullReviewReport(
+		c.Request.Context(), c.GetString("tenant_id"), c.GetString("owner_id"), c.Param("taskID"),
+	)
+	if err != nil {
+		writeStoreError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, report)
+}
+
+type confirmOutlineRequest struct {
+	OutlineVersionID    string `json:"outline_version_id" binding:"required"`
+	ExpectedTaskVersion int    `json:"expected_task_version" binding:"required,min=1"`
+}
+
+func (a *Router) confirmReviewOutline(c *gin.Context) {
+	var request confirmOutlineRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		writeError(c, http.StatusBadRequest, "INVALID_REQUEST", err.Error())
+		return
+	}
+	key := c.GetHeader("Idempotency-Key")
+	if key == "" {
+		writeError(c, http.StatusBadRequest, "MISSING_IDEMPOTENCY_KEY", "Idempotency-Key is required")
+		return
+	}
+	transition, err := a.store.ConfirmOutline(c.Request.Context(), runcontrol.ConfirmOutlineCommand{
+		TenantID: c.GetString("tenant_id"), OwnerID: c.GetString("owner_id"), TaskID: c.Param("taskID"),
+		OutlineVersionID: request.OutlineVersionID, IdempotencyKey: key, ExpectedTaskVersion: request.ExpectedTaskVersion,
+	})
+	if err != nil {
+		writeMutationError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, transition)
 }
 
 type confirmationDecisionRequest struct {

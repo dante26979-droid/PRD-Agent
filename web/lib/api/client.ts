@@ -15,6 +15,7 @@ import type {
   EvidenceView,
   PublishPreview as AgentPublishPreview,
   PublishView,
+  ReviewView,
   TaskWithRun,
 } from "@/lib/api/agent-types";
 
@@ -170,6 +171,44 @@ export function listAgentRuns(taskId: string): Promise<{ items: AgentRun[] }> {
 
 export function getAgentDraft(taskId: string): Promise<DraftView> {
   return request<DraftView>(`/tasks/${encodeURIComponent(taskId)}/draft`);
+}
+
+export function getAgentReview(taskId: string): Promise<ReviewView> {
+  return request<ReviewView>(`/tasks/${encodeURIComponent(taskId)}/review`);
+}
+
+export function confirmAgentOutline(
+  taskId: string,
+  outlineVersionId: string,
+  expectedTaskVersion: number,
+): Promise<unknown> {
+  return command(`/tasks/${encodeURIComponent(taskId)}/outline/confirm`, {
+    outline_version_id: outlineVersionId,
+    expected_task_version: expectedTaskVersion,
+  });
+}
+
+export function confirmAgentUnit(
+  taskId: string,
+  unitVersionId: string,
+  expectedTaskVersion: number,
+): Promise<unknown> {
+  return command(
+    `/tasks/${encodeURIComponent(taskId)}/confirmation-units/${encodeURIComponent(unitVersionId)}/confirm`,
+    { expected_task_version: expectedTaskVersion },
+  );
+}
+
+export function reopenAgentUnit(
+  taskId: string,
+  unitVersionId: string,
+  feedback: string,
+  expectedTaskVersion: number,
+): Promise<unknown> {
+  return command(
+    `/tasks/${encodeURIComponent(taskId)}/confirmation-units/${encodeURIComponent(unitVersionId)}/reopen`,
+    { feedback, expected_task_version: expectedTaskVersion },
+  );
 }
 
 export function listAgentEvidence(taskId: string): Promise<{ items: EvidenceView[] }> {

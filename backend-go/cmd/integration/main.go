@@ -38,6 +38,7 @@ func main() {
 		DSN: cfg.DatabaseDSN, MinConns: 1, MaxConns: cfg.DatabasePoolMax,
 		MaxGlobalRunnable: cfg.MaxGlobalRunnable, MaxRunnablePerOwner: cfg.MaxRunnablePerOwner,
 		MaxWaitingRuns: cfg.MaxWaitingRuns,
+		RolloutPolicy:  cfg.AgentRolloutPolicy,
 	})
 	if err != nil {
 		logger.Error("connect database", "error", err)
@@ -92,6 +93,7 @@ func runHealthcheck() error {
 		DSN: cfg.DatabaseDSN, MinConns: 1, MaxConns: 1,
 		MaxGlobalRunnable: cfg.MaxGlobalRunnable, MaxRunnablePerOwner: cfg.MaxRunnablePerOwner,
 		MaxWaitingRuns: cfg.MaxWaitingRuns,
+		RolloutPolicy:  cfg.AgentRolloutPolicy,
 	})
 	if err != nil {
 		return err

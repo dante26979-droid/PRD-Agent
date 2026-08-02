@@ -4,10 +4,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
+import re
 from statistics import mean
 from typing import Any
 
-from .metrics import MetricResult, evaluate_case
+from .metrics import (
+    MetricResult,
+    evaluate_agent_operations,
+    evaluate_case,
+    evaluate_information_need,
+    expected_information_need_requiredness,
+)
 from .models import BaselineConfig, BaselineRun, EvalDataset
 
 
@@ -22,6 +29,7 @@ class EvaluationReport:
     completed_runs: int
     failed_runs: int
     metric_summary: dict[str, dict[str, Any]]
+    information_need_confusion_matrix: dict[str, dict[str, int]]
     failures: tuple[dict[str, Any], ...]
     run_details: tuple[dict[str, Any], ...]
 
@@ -36,6 +44,7 @@ class EvaluationReport:
             "completed_runs": self.completed_runs,
             "failed_runs": self.failed_runs,
             "metric_summary": self.metric_summary,
+            "information_need_confusion_matrix": self.information_need_confusion_matrix,
             "failures": list(self.failures),
             "run_details": list(self.run_details),
         }
@@ -66,6 +75,21 @@ class EvaluationReport:
                 f"| {name} | {summary.get('mean', '—')} | {summary.get('min', '—')} | "
                 f"{summary.get('max', '—')} | {summary['status']} |"
             )
+        labels = ("NONE", "OPTIONAL", "REQUIRED")
+        lines.extend(
+            [
+                "",
+                "## Information Need Confusion Matrix",
+                "",
+                "| Expected \\ Actual | NONE | OPTIONAL | REQUIRED |",
+                "| --- | ---: | ---: | ---: |",
+            ]
+        )
+        for expected in labels:
+            row = self.information_need_confusion_matrix[expected]
+            lines.append(
+                f"| {expected} | {row['NONE']} | {row['OPTIONAL']} | {row['REQUIRED']} |"
+            )
         lines.extend(["", "## Run Details", "", "| Run | Case | Trial | Status | Input Hash |", "| --- | --- | ---: | --- | --- |"])
         for run in self.run_details:
             lines.append(
@@ -75,8 +99,51 @@ class EvaluationReport:
         if self.failures:
             lines.extend(["", "## Failures", ""])
             for failure in self.failures:
-                lines.append(f"- `{failure['eval_run_id']}` ({failure['case_id']}): {failure['error']}")
+                lines.append(
+                    f"- `{failure['eval_run_id']}` ({failure['case_id']}): "
+                    f"{failure['error_category']}"
+                )
         return "\n".join(lines) + "\n"
+
+
+def _public_error_category(run: BaselineRun) -> str:
+    trace = run.metadata.get("trace") if isinstance(run.metadata, dict) else None
+    if isinstance(trace, dict):
+        failure = trace.get("failure")
+        if isinstance(failure, dict) and failure.get("category"):
+            candidate = str(failure["category"])
+            return (
+                candidate
+                if re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", candidate)
+                else "UNKNOWN_ERROR"
+            )
+    name = str(run.error or "UNKNOWN_ERROR").split(":", 1)[0]
+    if name == "TimeoutError":
+        return "timeout"
+    return name if re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", name) else "UNKNOWN_ERROR"
+
+
+def _safe_run_detail(run: BaselineRun) -> dict[str, Any]:
+    metadata = run.metadata if isinstance(run.metadata, dict) else {}
+    trace = metadata.get("trace")
+    counters = trace.get("counters", {}) if isinstance(trace, dict) else {}
+    return {
+        "eval_run_id": run.eval_run_id,
+        "case_id": run.case_id,
+        "trial_no": run.trial_no,
+        "status": run.status,
+        "input_hash": run.input_hash,
+        "output_hash": run.output_hash,
+        "duration_ms": run.duration_ms,
+        "model_id": run.model_id,
+        "prompt_version": run.prompt_version,
+        "measurement_mode": metadata.get("measurement_mode", "legacy_baseline"),
+        "deterministic_only": metadata.get("deterministic_only"),
+        "workflow_version": metadata.get("workflow_version"),
+        "route": metadata.get("route"),
+        "counters": dict(counters) if isinstance(counters, dict) else {},
+        "error_category": _public_error_category(run) if run.status != "completed" else None,
+    }
 
 
 def _summarize(results: list[MetricResult]) -> dict[str, dict[str, Any]]:
@@ -101,6 +168,10 @@ def build_report(
 ) -> EvaluationReport:
     completed = [run for run in runs if run.status == "completed" and run.output is not None]
     metric_results: list[MetricResult] = []
+    labels = ("NONE", "OPTIONAL", "REQUIRED")
+    confusion = {
+        expected: {actual: 0 for actual in labels} for expected in labels
+    }
     for run in completed:
         case = next(case for case in dataset.cases if case.case_id == run.case_id)
         metric_results.extend(evaluate_case(case, run.output or ""))
@@ -115,16 +186,43 @@ def build_report(
                 metric_results.append(
                     MetricResult(name=name, value=float(run.metadata[name]))
                 )
+        trace = run.metadata.get("trace")
+        if isinstance(trace, dict) and trace.get("schema_version"):
+            metric_results.extend(evaluate_agent_operations(trace))
+            metric_results.extend(evaluate_information_need(case, trace))
+            raw_need = trace.get("information_need")
+            if isinstance(raw_need, dict):
+                actual = str(raw_need.get("requiredness", ""))
+                if actual in labels:
+                    expected = expected_information_need_requiredness(case)
+                    confusion[expected][actual] += 1
     failures = tuple(
         {
             "eval_run_id": run.eval_run_id,
             "case_id": run.case_id,
             "trial_no": run.trial_no,
-            "error": run.error or "unknown error",
+            "error_category": _public_error_category(run),
         }
         for run in runs
         if run.status != "completed"
     )
+    summary = _summarize(metric_results)
+    for label in labels:
+        key = label.lower()
+        true_positive = confusion[label][label]
+        predicted = sum(confusion[expected][label] for expected in labels)
+        expected_count = sum(confusion[label].values())
+        for metric_name, numerator, denominator in (
+            (f"information_need_{key}_precision", true_positive, predicted),
+            (f"information_need_{key}_recall", true_positive, expected_count),
+        ):
+            value = round(numerator / denominator, 4) if denominator else None
+            summary[metric_name] = {
+                "mean": value,
+                "min": value,
+                "max": value,
+                "status": "measured" if denominator else "not_applicable",
+            }
     return EvaluationReport(
         dataset_version=dataset.dataset_version,
         repository_id=dataset.repository_id,
@@ -134,7 +232,8 @@ def build_report(
         trial_count=len(runs),
         completed_runs=len(completed),
         failed_runs=len(failures),
-        metric_summary=_summarize(metric_results),
+        metric_summary=summary,
+        information_need_confusion_matrix=confusion,
         failures=failures,
-        run_details=tuple(run.as_dict() for run in runs),
+        run_details=tuple(_safe_run_detail(run) for run in runs),
     )

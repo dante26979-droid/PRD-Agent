@@ -2,6 +2,8 @@ package httpapi
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,6 +15,67 @@ import (
 
 	"github.com/dante26979-droid/prd-agent/backend-go/internal/runcontrol"
 )
+
+func TestReviewOutlineEndpointsExposeAndConfirmMaterializedV4Outline(t *testing.T) {
+	store := runcontrol.NewMemoryStore(runcontrol.QueuePolicy{MaxGlobalRunnable: 4, MaxRunnablePerOwner: 1, DefaultWorkflowVersion: runcontrol.WorkflowVersionV4})
+	created, err := store.CreateTaskWithRun(context.Background(), "local", "alice", "write a PRD", "outline-http")
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := store.AcquireRun(context.Background(), created.Run.RunID, "worker", time.Now().UTC(), time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lease := runcontrol.LeaseContext{RunID: run.RunID, LeaseID: run.LeaseID, WorkerID: run.WorkerID, FencingToken: run.FencingToken, ExpiresAt: run.LeaseExpiresAt}
+	input, err := store.GetRunContext(context.Background(), lease)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload := []byte(`{"schema_version":"outline-candidate.v1","title":"PRD","requirement_size":"SMALL","nodes":[{"node_key":"goal","parent_key":"","ordinal":10,"title":"目标","questions":[],"required_content":[],"unit_key":"goal"}],"units":[{"unit_key":"goal","title":"目标","ordinal":10,"node_keys":["goal"],"depends_on":[]}]}`)
+	digest := sha256.Sum256(payload)
+	if _, err := store.SubmitRunOutput(context.Background(), lease, runcontrol.RunOutput{
+		SchemaVersion: "run-output.v1", OutputKey: "outline-output",
+		OutputKind: runcontrol.RunOutputOutlineCandidate, RunPurpose: runcontrol.RunPurposePlanOutline,
+		ScopeHash: input.UnitScope.ScopeHash, ExpectedTaskVersion: 1,
+		ContentHash: hex.EncodeToString(digest[:]), Payload: payload,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CompleteRun(context.Background(), lease, runcontrol.RunSucceeded, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	outline, err := store.GetReviewOutline(context.Background(), "local", "alice", created.Task.TaskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	router := NewRouter(store)
+
+	get := httptest.NewRequest(http.MethodGet, "/api/v1/tasks/"+created.Task.TaskID+"/outline", nil)
+	get.Header.Set("X-User-ID", "alice")
+	getResponse := httptest.NewRecorder()
+	router.ServeHTTP(getResponse, get)
+	if getResponse.Code != http.StatusOK || !strings.Contains(getResponse.Body.String(), outline.OutlineVersionID) {
+		t.Fatalf("outline projection failed: status=%d body=%s", getResponse.Code, getResponse.Body.String())
+	}
+	review := httptest.NewRequest(http.MethodGet, "/api/v1/tasks/"+created.Task.TaskID+"/review", nil)
+	review.Header.Set("X-User-ID", "alice")
+	reviewResponse := httptest.NewRecorder()
+	router.ServeHTTP(reviewResponse, review)
+	if reviewResponse.Code != http.StatusOK || !strings.Contains(reviewResponse.Body.String(), `"workflow_version":"agent-runtime.v4"`) {
+		t.Fatalf("review projection failed: status=%d body=%s", reviewResponse.Code, reviewResponse.Body.String())
+	}
+
+	body := fmt.Sprintf(`{"outline_version_id":%q,"expected_task_version":2}`, outline.OutlineVersionID)
+	confirm := httptest.NewRequest(http.MethodPost, "/api/v1/tasks/"+created.Task.TaskID+"/outline/confirm", strings.NewReader(body))
+	confirm.Header.Set("Content-Type", "application/json")
+	confirm.Header.Set("Idempotency-Key", "confirm-outline-http")
+	confirm.Header.Set("X-User-ID", "alice")
+	confirmResponse := httptest.NewRecorder()
+	router.ServeHTTP(confirmResponse, confirm)
+	if confirmResponse.Code != http.StatusOK || !strings.Contains(confirmResponse.Body.String(), "UNIT_GENERATING") {
+		t.Fatalf("outline confirmation failed: status=%d body=%s", confirmResponse.Code, confirmResponse.Body.String())
+	}
+}
 
 type rejectingResolver struct{}
 

@@ -34,19 +34,21 @@ type Task struct {
 }
 
 type AgentRun struct {
-	RunID             string    `json:"run_id"`
-	TaskID            string    `json:"task_id"`
-	TenantID          string    `json:"tenant_id"`
-	OwnerID           string    `json:"owner_id"`
-	Status            RunStatus `json:"status"`
-	QueueSlotAcquired bool      `json:"queue_slot_acquired"`
-	AttemptCount      int       `json:"attempt_count"`
-	LeaseID           string    `json:"lease_id,omitempty"`
-	WorkerID          string    `json:"worker_id,omitempty"`
-	FencingToken      int64     `json:"fencing_token"`
-	LeaseExpiresAt    time.Time `json:"lease_expires_at,omitempty"`
-	CreatedAt         time.Time `json:"created_at"`
-	UpdatedAt         time.Time `json:"updated_at"`
+	RunID                  string                 `json:"run_id"`
+	TaskID                 string                 `json:"task_id"`
+	TenantID               string                 `json:"tenant_id"`
+	OwnerID                string                 `json:"owner_id"`
+	WorkflowVersion        WorkflowVersion        `json:"workflow_version"`
+	ExecutionLedgerVersion ExecutionLedgerVersion `json:"execution_ledger_version,omitempty"`
+	Status                 RunStatus              `json:"status"`
+	QueueSlotAcquired      bool                   `json:"queue_slot_acquired"`
+	AttemptCount           int                    `json:"attempt_count"`
+	LeaseID                string                 `json:"lease_id,omitempty"`
+	WorkerID               string                 `json:"worker_id,omitempty"`
+	FencingToken           int64                  `json:"fencing_token"`
+	LeaseExpiresAt         time.Time              `json:"lease_expires_at,omitempty"`
+	CreatedAt              time.Time              `json:"created_at"`
+	UpdatedAt              time.Time              `json:"updated_at"`
 }
 
 // LeaseContext is the capability a worker must present for every run mutation.
@@ -66,10 +68,14 @@ type TaskWithRun struct {
 }
 
 type QueuePolicy struct {
-	MaxGlobalRunnable   int
-	MaxRunnablePerOwner int
-	MaxWaitingRuns      int
-	ConfirmationSecret  string
+	MaxGlobalRunnable             int
+	MaxRunnablePerOwner           int
+	MaxWaitingRuns                int
+	ConfirmationSecret            string
+	DefaultWorkflowVersion        WorkflowVersion
+	DefaultExecutionLedgerVersion ExecutionLedgerVersion
+	DefaultRunBudget              RunBudget
+	RolloutPolicy                 *RolloutPolicy
 }
 
 type OutboxMessage struct {
@@ -121,18 +127,128 @@ type AgentDispatch struct {
 }
 
 type AgentRunInput struct {
-	Run                 AgentRun
-	TaskMessage         string
-	WorkflowVersion     string
-	Checkpoint          []byte
-	CheckpointSequence  int64
-	TaskVersion         int
-	RepositoryBindingID string
-	RepositoryRevision  string
-	ResumeEvidence      []EvidenceItem
-	ResumeArtifacts     []RunArtifact
-	RevisionScope       RevisionScope
-	ResumeDraft         *SubmittedDraftReceipt
+	Run                    AgentRun
+	TaskMessage            string
+	WorkflowVersion        string
+	Checkpoint             []byte
+	CheckpointSequence     int64
+	TaskVersion            int
+	RepositoryBindingID    string
+	RepositoryRevision     string
+	ResumeEvidence         []EvidenceItem
+	ResumeArtifacts        []RunArtifact
+	RevisionScope          RevisionScope
+	ResumeDraft            *SubmittedDraftReceipt
+	BaseDraft              *SubmittedDraftReceipt
+	SubmittedDraft         *SubmittedDraftReceipt
+	ResumeSummary          ResumeStateSummary
+	ExecutionLedgerVersion string
+	RunBudget              RunBudget
+	ConsumedBudget         BudgetDelta
+	LedgerEntries          []LedgerEntry
+	RunPurpose             RunPurpose
+	UnitScope              UnitScope
+	EvaluationMode         EvaluationMode
+	AuthoritativeWorkflow  WorkflowVersion
+	ShadowWorkflow         WorkflowVersion
+	CandidatePolicyVersion string
+	AssignmentHash         string
+}
+
+type ExecutionLedgerVersion string
+
+const ExecutionLedgerVersionV1 ExecutionLedgerVersion = "run-ledger.v1"
+
+type LedgerEntryKind string
+
+const (
+	LedgerEntryModel           LedgerEntryKind = "MODEL"
+	LedgerEntryCapability      LedgerEntryKind = "CAPABILITY"
+	LedgerEntryLocalTransition LedgerEntryKind = "LOCAL_TRANSITION"
+)
+
+type LedgerStatus string
+
+const (
+	LedgerReserved       LedgerStatus = "RESERVED"
+	LedgerCallStarted    LedgerStatus = "CALL_STARTED"
+	LedgerSucceeded      LedgerStatus = "SUCCEEDED"
+	LedgerFailed         LedgerStatus = "FAILED"
+	LedgerOutcomeUnknown LedgerStatus = "OUTCOME_UNKNOWN"
+)
+
+type RunBudget struct {
+	MaxModelAttempts  int64 `json:"max_model_attempts"`
+	MaxToolCalls      int64 `json:"max_tool_calls"`
+	MaxIterations     int64 `json:"max_iterations"`
+	MaxReplans        int64 `json:"max_replans"`
+	MaxSupplements    int64 `json:"max_supplements"`
+	MaxQualityRepairs int64 `json:"max_quality_repairs"`
+	MaxInputTokens    int64 `json:"max_input_tokens"`
+	MaxOutputTokens   int64 `json:"max_output_tokens"`
+	MaxElapsedMS      int64 `json:"max_elapsed_ms"`
+}
+
+type BudgetDelta struct {
+	ModelAttempts  int64 `json:"model_attempts"`
+	ToolCalls      int64 `json:"tool_calls"`
+	Iterations     int64 `json:"iterations"`
+	Replans        int64 `json:"replans"`
+	Supplements    int64 `json:"supplements"`
+	QualityRepairs int64 `json:"quality_repairs"`
+	InputTokens    int64 `json:"input_tokens"`
+	OutputTokens   int64 `json:"output_tokens"`
+	ElapsedMS      int64 `json:"elapsed_ms"`
+}
+
+type LedgerEntry struct {
+	EntryID            string
+	RunID              string
+	OperationKey       string
+	EntryKind          LedgerEntryKind
+	Operation          string
+	RequestHash        string
+	Status             LedgerStatus
+	Reservation        BudgetDelta
+	Consumption        BudgetDelta
+	OutputArtifactKey  string
+	OutputArtifactHash string
+	EvidenceRefs       []string
+	ErrorCategory      string
+	Retryable          bool
+	CreatedAt          time.Time
+	CallStartedAt      *time.Time
+	CompletedAt        *time.Time
+	UpdatedAt          time.Time
+}
+
+type LedgerFinish struct {
+	OperationKey       string
+	RequestHash        string
+	Status             LedgerStatus
+	Consumption        BudgetDelta
+	OutputArtifactKey  string
+	OutputArtifactHash string
+	EvidenceRefs       []string
+	ErrorCategory      string
+	Retryable          bool
+}
+
+type RunArtifactIdentity struct {
+	ArtifactKey  string
+	ArtifactType string
+	Generation   int64
+	RequestHash  string
+	ContentHash  string
+}
+
+type ResumeStateSummary struct {
+	CheckpointContentHash     string
+	TerminalModelAttemptCount int64
+	EvidenceCount             int64
+	EvidenceRefs              []string
+	ArtifactCount             int64
+	Artifacts                 []RunArtifactIdentity
 }
 
 type ModelAttempt struct {
@@ -193,6 +309,12 @@ type DraftReceipt struct {
 	TaskVersion int
 }
 
+type RunOutputReceipt struct {
+	OutputKey   string
+	ContentHash string
+	TaskVersion int
+}
+
 type WorkingDraft struct {
 	DraftID     string    `json:"draft_id"`
 	TaskID      string    `json:"task_id"`
@@ -208,6 +330,9 @@ type ConfirmationUnitVersion struct {
 	UnitID             string    `json:"unit_id"`
 	UnitVersionID      string    `json:"unit_version_id"`
 	DraftID            string    `json:"draft_id"`
+	OutlineVersionID   string    `json:"outline_version_id,omitempty"`
+	SourceRunID        string    `json:"source_run_id,omitempty"`
+	UnitVersionNo      int64     `json:"unit_version_no,omitempty"`
 	UnitKey            string    `json:"unit_key"`
 	Title              string    `json:"title"`
 	Ordinal            int       `json:"order"`
@@ -313,7 +438,13 @@ type AgentExecutionStore interface {
 	AppendEvidence(ctx context.Context, lease LeaseContext, items []EvidenceItem) (int, error)
 	SaveRunArtifact(ctx context.Context, lease LeaseContext, artifact RunArtifact) (RunArtifactReceipt, error)
 	SaveCheckpoint(ctx context.Context, lease LeaseContext, sequence int64, checkpoint []byte) (CheckpointReceipt, error)
+	ReserveLedgerEntry(ctx context.Context, lease LeaseContext, entry LedgerEntry) (LedgerEntry, error)
+	MarkLedgerCallStarted(ctx context.Context, lease LeaseContext, operationKey, requestHash string) (LedgerEntry, error)
+	FinishLedgerEntry(ctx context.Context, lease LeaseContext, result LedgerFinish) (LedgerEntry, error)
+	ConsumeLocalLedgerEntry(ctx context.Context, lease LeaseContext, entry LedgerEntry) (LedgerEntry, error)
 	SubmitDraft(ctx context.Context, lease LeaseContext, draftKey string, expectedTaskVersion int, patch []byte) (DraftReceipt, error)
+	SetRunUnitScope(ctx context.Context, tenantID, ownerID, runID string, expectedTaskVersion int, scope UnitScope) error
+	SubmitRunOutput(ctx context.Context, lease LeaseContext, output RunOutput) (RunOutputReceipt, error)
 }
 
 type DispatchStore interface {
@@ -323,6 +454,11 @@ type DispatchStore interface {
 	CreateDispatch(ctx context.Context, dispatch AgentDispatch) (AgentDispatch, error)
 	UpdateDispatch(ctx context.Context, dispatchID string, status DispatchStatus, lastError string, finishedAt *time.Time) error
 	ListDispatches(ctx context.Context, status DispatchStatus, limit int) ([]AgentDispatch, error)
+}
+
+type WorkflowRolloutStore interface {
+	SaveRolloutAssignment(ctx context.Context, runID string, assignment RolloutAssignment) error
+	GetRolloutAssignment(ctx context.Context, runID string) (RolloutAssignment, error)
 }
 
 type PublishStore interface {

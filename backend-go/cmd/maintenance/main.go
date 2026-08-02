@@ -42,6 +42,8 @@ func main() {
 		MaxGlobalRunnable: cfg.MaxGlobalRunnable, MaxRunnablePerOwner: cfg.MaxRunnablePerOwner,
 		MaxWaitingRuns:      cfg.MaxWaitingRuns,
 		RepositoryBindingID: cfg.FixedRepositoryBindingID, RepositoryRevision: cfg.FixedRepositoryRevision,
+		DefaultWorkflowVersion: runcontrol.WorkflowVersion(cfg.DefaultWorkflowVersion),
+		RolloutPolicy:          cfg.AgentRolloutPolicy,
 	})
 	if err != nil {
 		logger.Error("connect database", "error", err)
@@ -93,6 +95,9 @@ func main() {
 			_, err := postgres.PromoteWaiting(ctx, time.Now().UTC())
 			return err
 		},
+		"publish-payload-retention": func(ctx context.Context) error {
+			return purgeExpiredPublishPayloads(ctx, postgres, "maintenance-retention", time.Now().UTC())
+		},
 	}
 	if publisher != nil {
 		jobs["outbox"] = func(ctx context.Context) error {
@@ -101,9 +106,15 @@ func main() {
 	}
 	if agentDispatcher != nil {
 		jobs["agent-dispatch"] = func(ctx context.Context) error {
+			refreshCtx, cancel := context.WithTimeout(ctx, cfg.AgentRPCConnectTimeout)
+			refreshErr := pool.RefreshCapabilities(refreshCtx)
+			cancel()
+			if refreshErr != nil {
+				logger.Warn("refresh agent worker capabilities", "error", refreshErr)
+			}
 			report, err := agentDispatcher.DispatchOnce(ctx)
-			if err == nil && (report.Processed > 0 || report.Saturated > 0) {
-				logger.Info("direct agent dispatch cycle", "processed", report.Processed, "succeeded", report.Succeeded, "failed", report.Failed, "unknown", report.Unknown, "saturated", report.Saturated)
+			if err == nil && (report.Processed > 0 || report.Saturated > 0 || report.Incompatible > 0) {
+				logger.Info("direct agent dispatch cycle", "processed", report.Processed, "succeeded", report.Succeeded, "failed", report.Failed, "unknown", report.Unknown, "saturated", report.Saturated, "incompatible", report.Incompatible)
 			}
 			return err
 		}
@@ -128,6 +139,19 @@ func main() {
 	}
 }
 
+func purgeExpiredPublishPayloads(ctx context.Context, store runcontrol.PublishPayloadRetention, workerID string, now time.Time) error {
+	leases, err := store.ClaimExpiredPublishPayloads(ctx, workerID, now, 100, time.Minute)
+	if err != nil {
+		return err
+	}
+	for _, lease := range leases {
+		if err := store.PurgePublishPayload(ctx, lease, now); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func runHealthcheck() error {
 	cfg, err := config.LoadFor("maintenance")
 	if err != nil {
@@ -141,6 +165,8 @@ func runHealthcheck() error {
 		MaxGlobalRunnable: cfg.MaxGlobalRunnable, MaxRunnablePerOwner: cfg.MaxRunnablePerOwner,
 		MaxWaitingRuns:      cfg.MaxWaitingRuns,
 		RepositoryBindingID: cfg.FixedRepositoryBindingID, RepositoryRevision: cfg.FixedRepositoryRevision,
+		DefaultWorkflowVersion: runcontrol.WorkflowVersion(cfg.DefaultWorkflowVersion),
+		RolloutPolicy:          cfg.AgentRolloutPolicy,
 	})
 	if err != nil {
 		return err

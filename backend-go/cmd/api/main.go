@@ -37,19 +37,23 @@ func main() {
 	if cfg.DatabaseDSN == "" {
 		logger.Warn("database DSN is not configured; starting with memory store")
 		store = runcontrol.NewMemoryStore(runcontrol.QueuePolicy{
-			MaxGlobalRunnable:   cfg.MaxGlobalRunnable,
-			MaxRunnablePerOwner: cfg.MaxRunnablePerOwner,
-			MaxWaitingRuns:      cfg.MaxWaitingRuns,
-			ConfirmationSecret:  cfg.ExportConfirmationSecret,
+			MaxGlobalRunnable:      cfg.MaxGlobalRunnable,
+			MaxRunnablePerOwner:    cfg.MaxRunnablePerOwner,
+			MaxWaitingRuns:         cfg.MaxWaitingRuns,
+			ConfirmationSecret:     cfg.ExportConfirmationSecret,
+			DefaultWorkflowVersion: runcontrol.WorkflowVersion(cfg.DefaultWorkflowVersion),
+			RolloutPolicy:          cfg.AgentRolloutPolicy,
 		})
 	} else {
 		postgres, err := storage.NewPostgresStore(context.Background(), storage.Config{
 			DSN: cfg.DatabaseDSN, MinConns: cfg.DatabasePoolMin, MaxConns: cfg.DatabasePoolMax,
 			MaxGlobalRunnable: cfg.MaxGlobalRunnable, MaxRunnablePerOwner: cfg.MaxRunnablePerOwner,
-			MaxWaitingRuns:      cfg.MaxWaitingRuns,
-			ConfirmationSecret:  cfg.ExportConfirmationSecret,
-			RepositoryBindingID: cfg.FixedRepositoryBindingID,
-			RepositoryRevision:  cfg.FixedRepositoryRevision,
+			MaxWaitingRuns:         cfg.MaxWaitingRuns,
+			ConfirmationSecret:     cfg.ExportConfirmationSecret,
+			RepositoryBindingID:    cfg.FixedRepositoryBindingID,
+			RepositoryRevision:     cfg.FixedRepositoryRevision,
+			DefaultWorkflowVersion: runcontrol.WorkflowVersion(cfg.DefaultWorkflowVersion),
+			RolloutPolicy:          cfg.AgentRolloutPolicy,
 		})
 		if err != nil {
 			logger.Error("connect database", "error", err)

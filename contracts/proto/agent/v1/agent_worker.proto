@@ -79,6 +79,8 @@ message ExecuteRunResponse {
 	string contract_version = 17;
 	string correlation_id = 18;
 	RunArtifactEvent run_artifact = 19;
+	RunLedgerEvent ledger_event = 20;
+	RunOutput run_output = 21;
 }
 
 message CancelRunRequest {
@@ -104,4 +106,7 @@ message HealthResponse {
 	int32 max_inflight = 4;
 	bool model_ready = 5;
 	bool capability_ready = 6;
+	repeated string supported_workflow_versions = 7;
+	repeated string supported_snapshot_schema_versions = 8;
+	repeated string supported_execution_ledger_versions = 9;
 }

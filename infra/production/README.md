@@ -1,9 +1,15 @@
 # PRD Agent P0 production runbook
 
+Agent Runtime v4 graduation and v1 retirement are governed by the separate
+[rollout runbook](./agent-runtime-rollout-runbook.md). The deployment steps in
+this document do not by themselves authorize a rollout stage transition.
+
 This profile targets a small number of stable users on one server. It uses TLS
 + Basic Auth + an API allowlist; no OIDC or external identity platform is
 required. PostgreSQL is the durable source of truth. Redis is disposable
-wake-up transport.
+wake-up transport. The ingress rejects a client above the bounded request or
+connection limits with HTTP `429`; this is an in-process temporary block and
+does not grant the container host-firewall or network-administration privileges.
 
 ## 1. External inputs
 
@@ -119,6 +125,16 @@ their required database tables or file secrets are missing.
 
 ## 5. Smoke and operational checks
 
+Rollout assignment is disabled unless `PRD_AGENT_ROLLOUT_POLICY_VERSION` is
+set. When enabling it, configure `PRD_AGENT_V4_CANARY_BASIS_POINTS` in the
+inclusive range `0..10000`; optional `PRD_AGENT_V4_SHADOW` enables only the
+deterministic zero-remote-effect evaluator for v1 control runs. Identity lists
+use comma-separated `tenant_id:owner_id` values in
+`PRD_AGENT_V4_INTERNAL_IDENTITIES` and
+`PRD_AGENT_V4_EMERGENCY_DENY_IDENTITIES`; explicit task IDs use
+`PRD_AGENT_V4_EXPLICIT_TASK_IDS`. Changing the policy version affects only new
+assignments; retry and reopen inherit their persisted assignment.
+
 ```bash
 curl --fail --user alice 'https://prd.example.com/backend/api/v1/me'
 curl --fail --user alice 'https://prd.example.com/backend/api/v1/health/ready'
@@ -143,6 +159,19 @@ request counts and route latency sums/counts. Container logs are size-rotated.
 Alert externally on unhealthy containers, repeated Agent unknown/manual-review
 events, HTTP 5xx/429 growth and a `latest-success` backup marker older than 24
 hours.
+
+The default ingress limits are deliberately conservative for the small-user
+profile:
+
+- Web requests: 5 requests/second per client IP, with a burst of 30.
+- API requests: 5 requests/second per client IP, with a burst of 10.
+- Concurrent requests: 20 per client IP. With HTTP/2, each concurrent request
+  is counted separately by Nginx.
+
+These controls reject traffic while it exceeds the configured bounds; they are
+not a durable firewall ban and do not protect against an upstream bandwidth
+exhaustion attack. Review `429` logs before tightening the values so normal Web
+asset loading and API polling are not blocked.
 
 ## 6. Backup and restore drill
 

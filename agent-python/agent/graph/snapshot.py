@@ -8,8 +8,9 @@ from agent.checkpoint import CheckpointError
 
 
 LOOP_SNAPSHOT_SCHEMA_VERSION = "agent-loop-snapshot.v2"
+LOOP_SNAPSHOT_SCHEMA_VERSION_V3 = "agent-loop-snapshot.v3"
 _COMPATIBLE_SCHEMA_VERSIONS = frozenset(
-    {"agent-loop-snapshot.v1", LOOP_SNAPSHOT_SCHEMA_VERSION}
+    {"agent-loop-snapshot.v1", LOOP_SNAPSHOT_SCHEMA_VERSION, LOOP_SNAPSHOT_SCHEMA_VERSION_V3}
 )
 
 
@@ -17,9 +18,14 @@ class LoopCheckpointStatus(str, Enum):
     """Durable resume points for the controlled Agent loop."""
 
     INITIALIZED = "INITIALIZED"
+    NEED_PLANNED = "NEED_PLANNED"
     ACTION_VALIDATED = "ACTION_VALIDATED"
     OBSERVED = "OBSERVED"
     INVESTIGATION_FINISHED = "INVESTIGATION_FINISHED"
+    OUTLINE_DRAFTED = "OUTLINE_DRAFTED"
+    UNIT_DRAFTED = "UNIT_DRAFTED"
+    UNIT_PATCHED = "UNIT_PATCHED"
+    FULL_REVIEW_DRAFTED = "FULL_REVIEW_DRAFTED"
     DRAFTED = "DRAFTED"
     GROUNDING_SUPPLEMENT_REQUIRED = "GROUNDING_SUPPLEMENT_REQUIRED"
     GROUNDED = "GROUNDED"
@@ -36,7 +42,78 @@ class LoopSnapshot:
     status: LoopCheckpointStatus
     state: dict[str, Any]
 
-    def as_payload(self) -> dict[str, Any]:
+    def as_payload(self, *, workflow_version: str = "agent-runtime.v1") -> dict[str, Any]:
+        if workflow_version == "agent-runtime.v4":
+            state = dict(self.state)
+            required_artifacts = []
+            for prefix in (
+                "information_need",
+                "knowledge",
+                "draft",
+                "grounding",
+                "quality",
+                "confirmation",
+                "outline",
+                "unit",
+                "full_review",
+            ):
+                key = state.get(f"{prefix}_artifact_key")
+                content_hash = state.get(f"{prefix}_artifact_hash")
+                if key and content_hash:
+                    required_artifacts.append(
+                        {
+                            "artifact_key": key,
+                            "artifact_type": state.get(
+                                f"{prefix}_artifact_type", prefix.upper()
+                            ),
+                            "generation": int(
+                                state.get(
+                                    f"{prefix}_artifact_generation",
+                                    state.get("draft_generation", 0),
+                                )
+                            ),
+                            "request_hash": state.get(
+                                f"{prefix}_artifact_request_hash", content_hash
+                            ),
+                            "content_hash": content_hash,
+                        }
+                    )
+            return {
+                "snapshot_schema_version": LOOP_SNAPSHOT_SCHEMA_VERSION_V3,
+                "status": self.status.value,
+                "snapshot": state,
+                "identity": {
+                    "run_id": state.get("run_id"),
+                    "task_id": state.get("task_id"),
+                    "workflow_version": workflow_version,
+                    "base_task_version": state.get("task_version"),
+                    "repository_binding_id": state.get("repository_binding_id", ""),
+                    "repository_revision": state.get("repository_revision", ""),
+                },
+                "checkpoint_sequence": state.get("checkpoint_sequence"),
+                "progress": {
+                    key: int(state.get(key, 0))
+                    for key in (
+                        "model_attempt_count",
+                        "iteration",
+                        "tool_call_count",
+                        "token_usage",
+                        "replan_count",
+                        "no_progress_rounds",
+                        "supplement_count",
+                        "repair_count",
+                        "draft_generation",
+                    )
+                },
+                "required_artifacts": sorted(
+                    required_artifacts, key=lambda item: item["artifact_key"]
+                ),
+                "immutable_unit_keys": sorted(state.get("immutable_unit_keys", [])),
+                "reopened_unit_keys": sorted(state.get("reopened_unit_keys", [])),
+                "submission": state.get("submission"),
+                "execution_ledger_version": state.get("execution_ledger_version", ""),
+                "terminal_operation_keys": sorted(state.get("terminal_operation_keys", [])),
+            }
         return {
             "snapshot_schema_version": LOOP_SNAPSHOT_SCHEMA_VERSION,
             "status": self.status.value,
@@ -82,6 +159,20 @@ class LoopSnapshot:
             ):
                 raise CheckpointError(
                     "ACTION_VALIDATED snapshot requires a validated pending action"
+                )
+        elif status is LoopCheckpointStatus.NEED_PLANNED:
+            required = (
+                "information_need_plan_id",
+                "information_need_context_hash",
+                "information_need_artifact_key",
+                "information_need_artifact_hash",
+                "effective_requiredness",
+                "need_route",
+                "need_route_reason_code",
+            )
+            if any(not state.get(key) for key in required):
+                raise CheckpointError(
+                    "NEED_PLANNED snapshot requires a durable information need"
                 )
         elif status is LoopCheckpointStatus.READY_TO_SUBMIT:
             markdown = state.get("candidate_markdown")

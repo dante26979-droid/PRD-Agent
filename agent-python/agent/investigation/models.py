@@ -12,6 +12,21 @@ class CoverageStatus(StrEnum):
     CONFLICTING = "CONFLICTING"
 
 
+class InvestigationMode(StrEnum):
+    INITIAL = "INITIAL"
+    REPLAN = "REPLAN"
+    SUPPLEMENT = "SUPPLEMENT"
+
+
+class InvestigationStatus(StrEnum):
+    COMPLETE = "COMPLETE"
+    PARTIAL = "PARTIAL"
+    EMPTY = "EMPTY"
+    HUMAN_INPUT_REQUIRED = "HUMAN_INPUT_REQUIRED"
+    CANCELLED = "CANCELLED"
+    FAILED = "FAILED"
+
+
 class StopReason(StrEnum):
     COVERAGE_COMPLETE = "COVERAGE_COMPLETE"
     DRAFT_READY = "DRAFT_READY"
@@ -19,6 +34,15 @@ class StopReason(StrEnum):
     MAX_ITERATIONS_REACHED = "MAX_ITERATIONS_REACHED"
     TOOL_BUDGET_EXHAUSTED = "TOOL_BUDGET_EXHAUSTED"
     TOKEN_BUDGET_EXHAUSTED = "TOKEN_BUDGET_EXHAUSTED"
+    HUMAN_INPUT_REQUIRED = "HUMAN_INPUT_REQUIRED"
+    PARTIAL_COVERAGE = "PARTIAL_COVERAGE"
+    REPLAN_EXHAUSTED = "REPLAN_EXHAUSTED"
+    MODEL_BUDGET_EXHAUSTED = "MODEL_BUDGET_EXHAUSTED"
+    SUPPLEMENT_BUDGET_EXHAUSTED = "SUPPLEMENT_BUDGET_EXHAUSTED"
+    PERMISSION_DENIED = "PERMISSION_DENIED"
+    USER_STOPPED = "USER_STOPPED"
+    SOURCE_STALE = "SOURCE_STALE"
+    CAPABILITY_FAILED = "CAPABILITY_FAILED"
 
 
 @dataclass(frozen=True)
@@ -48,6 +72,7 @@ class ProposedAction:
     purpose: str
     target_coverage: tuple[str, ...]
     tool_schema_version: str = "1"
+    strategy: str = "KEYWORD_SEARCH"
 
     @classmethod
     def from_model_output(
@@ -97,6 +122,7 @@ class ProposedAction:
             arguments=dict(arguments),
             purpose=purpose,
             target_coverage=targets,
+            strategy=str(action.get("strategy", "KEYWORD_SEARCH")).strip(),
         )
 
     def as_dict(self) -> dict[str, object]:
@@ -106,4 +132,55 @@ class ProposedAction:
             "arguments": self.arguments,
             "purpose": self.purpose,
             "target_coverage": list(self.target_coverage),
+            "strategy": self.strategy,
         }
+
+
+@dataclass(frozen=True)
+class ActionRecord:
+    round_index: int
+    mode: InvestigationMode
+    signature: str
+    action: ProposedAction
+    new_fact_ids: tuple[str, ...]
+    progress_before: str | None
+    progress_after: str | None
+
+
+@dataclass(frozen=True)
+class ActionSelectionContext:
+    mode: InvestigationMode
+    active_gap: str
+    coverage: dict[str, str]
+    action_history: tuple[ActionRecord, ...]
+    no_progress_reason: str | None
+    remaining_iterations: int
+    remaining_tool_calls: int
+    remaining_replans: int
+
+
+@dataclass(frozen=True)
+class InvestigationRequest:
+    run_id: str
+    task_id: str
+    mode: InvestigationMode
+    need_plan_id: str
+    need_context_hash: str
+    coverage: dict[str, str]
+    source_authorities: tuple[object, ...]
+    budget: InvestigationBudget
+    prior_knowledge: object | None = None
+    prior_action_history: tuple[ActionRecord, ...] = ()
+    pending_action: ProposedAction | None = None
+    pending_signature: str = ""
+
+
+@dataclass(frozen=True)
+class InvestigationResult:
+    status: InvestigationStatus
+    stop_reason: StopReason
+    coverage: dict[str, str]
+    knowledge: object | None
+    action_history: tuple[ActionRecord, ...]
+    replan_count: int
+    no_progress_rounds: int

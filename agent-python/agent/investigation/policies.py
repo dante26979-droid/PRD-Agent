@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import hashlib
-import json
 from collections.abc import Mapping
+
+from agent.action_identity import action_signature
 
 from .models import CoverageStatus, InvestigationBudget, ProposedAction, StopReason
 
@@ -41,21 +41,6 @@ def pre_action_stop(state: Mapping[str, object], budget: InvestigationBudget):
     if int(state.get("no_progress_rounds", 0)) >= budget.no_progress_limit:
         return StopReason.NO_PROGRESS
     return None
-
-
-def action_signature(action: ProposedAction) -> str:
-    encoded = json.dumps(
-        {
-            "tool_id": action.tool_id,
-            "tool_schema_version": action.tool_schema_version,
-            "arguments": action.arguments,
-            "target_coverage": action.target_coverage,
-        },
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode("utf-8")
-    return "sha256:" + hashlib.sha256(encoded).hexdigest()
 
 
 def validate_action(

@@ -21,6 +21,116 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+type RunPurpose int32
+
+const (
+	RunPurpose_RUN_PURPOSE_UNSPECIFIED   RunPurpose = 0
+	RunPurpose_RUN_PURPOSE_PLAN_OUTLINE  RunPurpose = 1
+	RunPurpose_RUN_PURPOSE_GENERATE_UNIT RunPurpose = 2
+	RunPurpose_RUN_PURPOSE_REVISE_UNIT   RunPurpose = 3
+	RunPurpose_RUN_PURPOSE_FULL_REVIEW   RunPurpose = 4
+)
+
+// Enum value maps for RunPurpose.
+var (
+	RunPurpose_name = map[int32]string{
+		0: "RUN_PURPOSE_UNSPECIFIED",
+		1: "RUN_PURPOSE_PLAN_OUTLINE",
+		2: "RUN_PURPOSE_GENERATE_UNIT",
+		3: "RUN_PURPOSE_REVISE_UNIT",
+		4: "RUN_PURPOSE_FULL_REVIEW",
+	}
+	RunPurpose_value = map[string]int32{
+		"RUN_PURPOSE_UNSPECIFIED":   0,
+		"RUN_PURPOSE_PLAN_OUTLINE":  1,
+		"RUN_PURPOSE_GENERATE_UNIT": 2,
+		"RUN_PURPOSE_REVISE_UNIT":   3,
+		"RUN_PURPOSE_FULL_REVIEW":   4,
+	}
+)
+
+func (x RunPurpose) Enum() *RunPurpose {
+	p := new(RunPurpose)
+	*p = x
+	return p
+}
+
+func (x RunPurpose) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (RunPurpose) Descriptor() protoreflect.EnumDescriptor {
+	return file_agent_v1_agent_execution_proto_enumTypes[0].Descriptor()
+}
+
+func (RunPurpose) Type() protoreflect.EnumType {
+	return &file_agent_v1_agent_execution_proto_enumTypes[0]
+}
+
+func (x RunPurpose) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use RunPurpose.Descriptor instead.
+func (RunPurpose) EnumDescriptor() ([]byte, []int) {
+	return file_agent_v1_agent_execution_proto_rawDescGZIP(), []int{0}
+}
+
+type RunOutputKind int32
+
+const (
+	RunOutputKind_RUN_OUTPUT_KIND_UNSPECIFIED        RunOutputKind = 0
+	RunOutputKind_RUN_OUTPUT_KIND_OUTLINE_CANDIDATE  RunOutputKind = 1
+	RunOutputKind_RUN_OUTPUT_KIND_UNIT_CANDIDATE     RunOutputKind = 2
+	RunOutputKind_RUN_OUTPUT_KIND_UNIT_PATCH         RunOutputKind = 3
+	RunOutputKind_RUN_OUTPUT_KIND_FULL_REVIEW_REPORT RunOutputKind = 4
+)
+
+// Enum value maps for RunOutputKind.
+var (
+	RunOutputKind_name = map[int32]string{
+		0: "RUN_OUTPUT_KIND_UNSPECIFIED",
+		1: "RUN_OUTPUT_KIND_OUTLINE_CANDIDATE",
+		2: "RUN_OUTPUT_KIND_UNIT_CANDIDATE",
+		3: "RUN_OUTPUT_KIND_UNIT_PATCH",
+		4: "RUN_OUTPUT_KIND_FULL_REVIEW_REPORT",
+	}
+	RunOutputKind_value = map[string]int32{
+		"RUN_OUTPUT_KIND_UNSPECIFIED":        0,
+		"RUN_OUTPUT_KIND_OUTLINE_CANDIDATE":  1,
+		"RUN_OUTPUT_KIND_UNIT_CANDIDATE":     2,
+		"RUN_OUTPUT_KIND_UNIT_PATCH":         3,
+		"RUN_OUTPUT_KIND_FULL_REVIEW_REPORT": 4,
+	}
+)
+
+func (x RunOutputKind) Enum() *RunOutputKind {
+	p := new(RunOutputKind)
+	*p = x
+	return p
+}
+
+func (x RunOutputKind) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (RunOutputKind) Descriptor() protoreflect.EnumDescriptor {
+	return file_agent_v1_agent_execution_proto_enumTypes[1].Descriptor()
+}
+
+func (RunOutputKind) Type() protoreflect.EnumType {
+	return &file_agent_v1_agent_execution_proto_enumTypes[1]
+}
+
+func (x RunOutputKind) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use RunOutputKind.Descriptor instead.
+func (RunOutputKind) EnumDescriptor() ([]byte, []int) {
+	return file_agent_v1_agent_execution_proto_rawDescGZIP(), []int{1}
+}
+
 type RequestMeta struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	ContractVersion string                 `protobuf:"bytes,1,opt,name=contract_version,json=contractVersion,proto3" json:"contract_version,omitempty"`
@@ -330,24 +440,39 @@ func (x *GetRunContextRequest) GetMeta() *RequestMeta {
 }
 
 type AgentRunInput struct {
-	state               protoimpl.MessageState `protogen:"open.v1"`
-	RunId               string                 `protobuf:"bytes,1,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
-	TenantId            string                 `protobuf:"bytes,2,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
-	OwnerId             string                 `protobuf:"bytes,3,opt,name=owner_id,json=ownerId,proto3" json:"owner_id,omitempty"`
-	TaskId              string                 `protobuf:"bytes,4,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
-	TaskMessage         string                 `protobuf:"bytes,5,opt,name=task_message,json=taskMessage,proto3" json:"task_message,omitempty"`
-	WorkflowVersion     string                 `protobuf:"bytes,6,opt,name=workflow_version,json=workflowVersion,proto3" json:"workflow_version,omitempty"`
-	Checkpoint          []byte                 `protobuf:"bytes,7,opt,name=checkpoint,proto3" json:"checkpoint,omitempty"`
-	CheckpointSequence  int64                  `protobuf:"varint,8,opt,name=checkpoint_sequence,json=checkpointSequence,proto3" json:"checkpoint_sequence,omitempty"`
-	TaskVersion         int64                  `protobuf:"varint,9,opt,name=task_version,json=taskVersion,proto3" json:"task_version,omitempty"`
-	RepositoryBindingId string                 `protobuf:"bytes,10,opt,name=repository_binding_id,json=repositoryBindingId,proto3" json:"repository_binding_id,omitempty"`
-	RepositoryRevision  string                 `protobuf:"bytes,11,opt,name=repository_revision,json=repositoryRevision,proto3" json:"repository_revision,omitempty"`
-	ResumeEvidence      []*EvidenceItem        `protobuf:"bytes,12,rep,name=resume_evidence,json=resumeEvidence,proto3" json:"resume_evidence,omitempty"`
-	ResumeArtifacts     []*RunArtifact         `protobuf:"bytes,13,rep,name=resume_artifacts,json=resumeArtifacts,proto3" json:"resume_artifacts,omitempty"`
-	RevisionScope       *RevisionScope         `protobuf:"bytes,14,opt,name=revision_scope,json=revisionScope,proto3" json:"revision_scope,omitempty"`
-	ResumeDraft         *SubmittedDraftReceipt `protobuf:"bytes,15,opt,name=resume_draft,json=resumeDraft,proto3" json:"resume_draft,omitempty"`
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+	state                        protoimpl.MessageState `protogen:"open.v1"`
+	RunId                        string                 `protobuf:"bytes,1,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
+	TenantId                     string                 `protobuf:"bytes,2,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	OwnerId                      string                 `protobuf:"bytes,3,opt,name=owner_id,json=ownerId,proto3" json:"owner_id,omitempty"`
+	TaskId                       string                 `protobuf:"bytes,4,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
+	TaskMessage                  string                 `protobuf:"bytes,5,opt,name=task_message,json=taskMessage,proto3" json:"task_message,omitempty"`
+	WorkflowVersion              string                 `protobuf:"bytes,6,opt,name=workflow_version,json=workflowVersion,proto3" json:"workflow_version,omitempty"`
+	Checkpoint                   []byte                 `protobuf:"bytes,7,opt,name=checkpoint,proto3" json:"checkpoint,omitempty"`
+	CheckpointSequence           int64                  `protobuf:"varint,8,opt,name=checkpoint_sequence,json=checkpointSequence,proto3" json:"checkpoint_sequence,omitempty"`
+	TaskVersion                  int64                  `protobuf:"varint,9,opt,name=task_version,json=taskVersion,proto3" json:"task_version,omitempty"`
+	RepositoryBindingId          string                 `protobuf:"bytes,10,opt,name=repository_binding_id,json=repositoryBindingId,proto3" json:"repository_binding_id,omitempty"`
+	RepositoryRevision           string                 `protobuf:"bytes,11,opt,name=repository_revision,json=repositoryRevision,proto3" json:"repository_revision,omitempty"`
+	ResumeEvidence               []*EvidenceItem        `protobuf:"bytes,12,rep,name=resume_evidence,json=resumeEvidence,proto3" json:"resume_evidence,omitempty"`
+	ResumeArtifacts              []*RunArtifact         `protobuf:"bytes,13,rep,name=resume_artifacts,json=resumeArtifacts,proto3" json:"resume_artifacts,omitempty"`
+	RevisionScope                *RevisionScope         `protobuf:"bytes,14,opt,name=revision_scope,json=revisionScope,proto3" json:"revision_scope,omitempty"`
+	ResumeDraft                  *SubmittedDraftReceipt `protobuf:"bytes,15,opt,name=resume_draft,json=resumeDraft,proto3" json:"resume_draft,omitempty"`
+	BaseDraft                    *SubmittedDraftReceipt `protobuf:"bytes,16,opt,name=base_draft,json=baseDraft,proto3" json:"base_draft,omitempty"`
+	SubmittedDraft               *SubmittedDraftReceipt `protobuf:"bytes,17,opt,name=submitted_draft,json=submittedDraft,proto3" json:"submitted_draft,omitempty"`
+	ResumeSummary                *ResumeStateSummary    `protobuf:"bytes,18,opt,name=resume_summary,json=resumeSummary,proto3" json:"resume_summary,omitempty"`
+	ExecutionLedgerVersion       string                 `protobuf:"bytes,19,opt,name=execution_ledger_version,json=executionLedgerVersion,proto3" json:"execution_ledger_version,omitempty"`
+	RunBudget                    *RunBudget             `protobuf:"bytes,20,opt,name=run_budget,json=runBudget,proto3" json:"run_budget,omitempty"`
+	ConsumedBudget               *ConsumedBudget        `protobuf:"bytes,21,opt,name=consumed_budget,json=consumedBudget,proto3" json:"consumed_budget,omitempty"`
+	LedgerEntries                []*RunLedgerEntry      `protobuf:"bytes,22,rep,name=ledger_entries,json=ledgerEntries,proto3" json:"ledger_entries,omitempty"`
+	AllowedSourceAuthorities     []*SourceAuthority     `protobuf:"bytes,23,rep,name=allowed_source_authorities,json=allowedSourceAuthorities,proto3" json:"allowed_source_authorities,omitempty"`
+	RunPurpose                   RunPurpose             `protobuf:"varint,24,opt,name=run_purpose,json=runPurpose,proto3,enum=agent.v1.RunPurpose" json:"run_purpose,omitempty"`
+	UnitScope                    *UnitScope             `protobuf:"bytes,25,opt,name=unit_scope,json=unitScope,proto3" json:"unit_scope,omitempty"`
+	EvaluationMode               string                 `protobuf:"bytes,26,opt,name=evaluation_mode,json=evaluationMode,proto3" json:"evaluation_mode,omitempty"`
+	AuthoritativeWorkflowVersion string                 `protobuf:"bytes,27,opt,name=authoritative_workflow_version,json=authoritativeWorkflowVersion,proto3" json:"authoritative_workflow_version,omitempty"`
+	ShadowWorkflowVersion        string                 `protobuf:"bytes,28,opt,name=shadow_workflow_version,json=shadowWorkflowVersion,proto3" json:"shadow_workflow_version,omitempty"`
+	CandidatePolicyVersion       string                 `protobuf:"bytes,29,opt,name=candidate_policy_version,json=candidatePolicyVersion,proto3" json:"candidate_policy_version,omitempty"`
+	AssignmentHash               string                 `protobuf:"bytes,30,opt,name=assignment_hash,json=assignmentHash,proto3" json:"assignment_hash,omitempty"`
+	unknownFields                protoimpl.UnknownFields
+	sizeCache                    protoimpl.SizeCache
 }
 
 func (x *AgentRunInput) Reset() {
@@ -485,6 +610,959 @@ func (x *AgentRunInput) GetResumeDraft() *SubmittedDraftReceipt {
 	return nil
 }
 
+func (x *AgentRunInput) GetBaseDraft() *SubmittedDraftReceipt {
+	if x != nil {
+		return x.BaseDraft
+	}
+	return nil
+}
+
+func (x *AgentRunInput) GetSubmittedDraft() *SubmittedDraftReceipt {
+	if x != nil {
+		return x.SubmittedDraft
+	}
+	return nil
+}
+
+func (x *AgentRunInput) GetResumeSummary() *ResumeStateSummary {
+	if x != nil {
+		return x.ResumeSummary
+	}
+	return nil
+}
+
+func (x *AgentRunInput) GetExecutionLedgerVersion() string {
+	if x != nil {
+		return x.ExecutionLedgerVersion
+	}
+	return ""
+}
+
+func (x *AgentRunInput) GetRunBudget() *RunBudget {
+	if x != nil {
+		return x.RunBudget
+	}
+	return nil
+}
+
+func (x *AgentRunInput) GetConsumedBudget() *ConsumedBudget {
+	if x != nil {
+		return x.ConsumedBudget
+	}
+	return nil
+}
+
+func (x *AgentRunInput) GetLedgerEntries() []*RunLedgerEntry {
+	if x != nil {
+		return x.LedgerEntries
+	}
+	return nil
+}
+
+func (x *AgentRunInput) GetAllowedSourceAuthorities() []*SourceAuthority {
+	if x != nil {
+		return x.AllowedSourceAuthorities
+	}
+	return nil
+}
+
+func (x *AgentRunInput) GetRunPurpose() RunPurpose {
+	if x != nil {
+		return x.RunPurpose
+	}
+	return RunPurpose_RUN_PURPOSE_UNSPECIFIED
+}
+
+func (x *AgentRunInput) GetUnitScope() *UnitScope {
+	if x != nil {
+		return x.UnitScope
+	}
+	return nil
+}
+
+func (x *AgentRunInput) GetEvaluationMode() string {
+	if x != nil {
+		return x.EvaluationMode
+	}
+	return ""
+}
+
+func (x *AgentRunInput) GetAuthoritativeWorkflowVersion() string {
+	if x != nil {
+		return x.AuthoritativeWorkflowVersion
+	}
+	return ""
+}
+
+func (x *AgentRunInput) GetShadowWorkflowVersion() string {
+	if x != nil {
+		return x.ShadowWorkflowVersion
+	}
+	return ""
+}
+
+func (x *AgentRunInput) GetCandidatePolicyVersion() string {
+	if x != nil {
+		return x.CandidatePolicyVersion
+	}
+	return ""
+}
+
+func (x *AgentRunInput) GetAssignmentHash() string {
+	if x != nil {
+		return x.AssignmentHash
+	}
+	return ""
+}
+
+type ConfirmedUnitContext struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	UnitKey         string                 `protobuf:"bytes,1,opt,name=unit_key,json=unitKey,proto3" json:"unit_key,omitempty"`
+	UnitVersion     int64                  `protobuf:"varint,2,opt,name=unit_version,json=unitVersion,proto3" json:"unit_version,omitempty"`
+	ContentHash     string                 `protobuf:"bytes,3,opt,name=content_hash,json=contentHash,proto3" json:"content_hash,omitempty"`
+	Summary         string                 `protobuf:"bytes,4,opt,name=summary,proto3" json:"summary,omitempty"`
+	WorkingDraftRef string                 `protobuf:"bytes,5,opt,name=working_draft_ref,json=workingDraftRef,proto3" json:"working_draft_ref,omitempty"`
+	Markdown        string                 `protobuf:"bytes,6,opt,name=markdown,proto3" json:"markdown,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *ConfirmedUnitContext) Reset() {
+	*x = ConfirmedUnitContext{}
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ConfirmedUnitContext) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ConfirmedUnitContext) ProtoMessage() {}
+
+func (x *ConfirmedUnitContext) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ConfirmedUnitContext.ProtoReflect.Descriptor instead.
+func (*ConfirmedUnitContext) Descriptor() ([]byte, []int) {
+	return file_agent_v1_agent_execution_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *ConfirmedUnitContext) GetUnitKey() string {
+	if x != nil {
+		return x.UnitKey
+	}
+	return ""
+}
+
+func (x *ConfirmedUnitContext) GetUnitVersion() int64 {
+	if x != nil {
+		return x.UnitVersion
+	}
+	return 0
+}
+
+func (x *ConfirmedUnitContext) GetContentHash() string {
+	if x != nil {
+		return x.ContentHash
+	}
+	return ""
+}
+
+func (x *ConfirmedUnitContext) GetSummary() string {
+	if x != nil {
+		return x.Summary
+	}
+	return ""
+}
+
+func (x *ConfirmedUnitContext) GetWorkingDraftRef() string {
+	if x != nil {
+		return x.WorkingDraftRef
+	}
+	return ""
+}
+
+func (x *ConfirmedUnitContext) GetMarkdown() string {
+	if x != nil {
+		return x.Markdown
+	}
+	return ""
+}
+
+type UnitScope struct {
+	state                protoimpl.MessageState  `protogen:"open.v1"`
+	SchemaVersion        string                  `protobuf:"bytes,1,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"`
+	OutlineId            string                  `protobuf:"bytes,2,opt,name=outline_id,json=outlineId,proto3" json:"outline_id,omitempty"`
+	OutlineVersion       int64                   `protobuf:"varint,3,opt,name=outline_version,json=outlineVersion,proto3" json:"outline_version,omitempty"`
+	OutlineHash          string                  `protobuf:"bytes,4,opt,name=outline_hash,json=outlineHash,proto3" json:"outline_hash,omitempty"`
+	CurrentUnitKey       string                  `protobuf:"bytes,5,opt,name=current_unit_key,json=currentUnitKey,proto3" json:"current_unit_key,omitempty"`
+	CurrentUnitTitle     string                  `protobuf:"bytes,6,opt,name=current_unit_title,json=currentUnitTitle,proto3" json:"current_unit_title,omitempty"`
+	CurrentUnitOrdinal   int32                   `protobuf:"varint,7,opt,name=current_unit_ordinal,json=currentUnitOrdinal,proto3" json:"current_unit_ordinal,omitempty"`
+	SectionNodeKeys      []string                `protobuf:"bytes,8,rep,name=section_node_keys,json=sectionNodeKeys,proto3" json:"section_node_keys,omitempty"`
+	DependencyUnitKeys   []string                `protobuf:"bytes,9,rep,name=dependency_unit_keys,json=dependencyUnitKeys,proto3" json:"dependency_unit_keys,omitempty"`
+	ConfirmedContext     []*ConfirmedUnitContext `protobuf:"bytes,10,rep,name=confirmed_context,json=confirmedContext,proto3" json:"confirmed_context,omitempty"`
+	ReopenedUnitKeys     []string                `protobuf:"bytes,11,rep,name=reopened_unit_keys,json=reopenedUnitKeys,proto3" json:"reopened_unit_keys,omitempty"`
+	ImmutableUnitKeys    []string                `protobuf:"bytes,12,rep,name=immutable_unit_keys,json=immutableUnitKeys,proto3" json:"immutable_unit_keys,omitempty"`
+	RequirementBriefRef  string                  `protobuf:"bytes,13,opt,name=requirement_brief_ref,json=requirementBriefRef,proto3" json:"requirement_brief_ref,omitempty"`
+	RequirementBriefHash string                  `protobuf:"bytes,14,opt,name=requirement_brief_hash,json=requirementBriefHash,proto3" json:"requirement_brief_hash,omitempty"`
+	BaseUnitHash         string                  `protobuf:"bytes,15,opt,name=base_unit_hash,json=baseUnitHash,proto3" json:"base_unit_hash,omitempty"`
+	UserFeedback         string                  `protobuf:"bytes,16,opt,name=user_feedback,json=userFeedback,proto3" json:"user_feedback,omitempty"`
+	ScopeHash            string                  `protobuf:"bytes,17,opt,name=scope_hash,json=scopeHash,proto3" json:"scope_hash,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
+}
+
+func (x *UnitScope) Reset() {
+	*x = UnitScope{}
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UnitScope) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UnitScope) ProtoMessage() {}
+
+func (x *UnitScope) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UnitScope.ProtoReflect.Descriptor instead.
+func (*UnitScope) Descriptor() ([]byte, []int) {
+	return file_agent_v1_agent_execution_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *UnitScope) GetSchemaVersion() string {
+	if x != nil {
+		return x.SchemaVersion
+	}
+	return ""
+}
+
+func (x *UnitScope) GetOutlineId() string {
+	if x != nil {
+		return x.OutlineId
+	}
+	return ""
+}
+
+func (x *UnitScope) GetOutlineVersion() int64 {
+	if x != nil {
+		return x.OutlineVersion
+	}
+	return 0
+}
+
+func (x *UnitScope) GetOutlineHash() string {
+	if x != nil {
+		return x.OutlineHash
+	}
+	return ""
+}
+
+func (x *UnitScope) GetCurrentUnitKey() string {
+	if x != nil {
+		return x.CurrentUnitKey
+	}
+	return ""
+}
+
+func (x *UnitScope) GetCurrentUnitTitle() string {
+	if x != nil {
+		return x.CurrentUnitTitle
+	}
+	return ""
+}
+
+func (x *UnitScope) GetCurrentUnitOrdinal() int32 {
+	if x != nil {
+		return x.CurrentUnitOrdinal
+	}
+	return 0
+}
+
+func (x *UnitScope) GetSectionNodeKeys() []string {
+	if x != nil {
+		return x.SectionNodeKeys
+	}
+	return nil
+}
+
+func (x *UnitScope) GetDependencyUnitKeys() []string {
+	if x != nil {
+		return x.DependencyUnitKeys
+	}
+	return nil
+}
+
+func (x *UnitScope) GetConfirmedContext() []*ConfirmedUnitContext {
+	if x != nil {
+		return x.ConfirmedContext
+	}
+	return nil
+}
+
+func (x *UnitScope) GetReopenedUnitKeys() []string {
+	if x != nil {
+		return x.ReopenedUnitKeys
+	}
+	return nil
+}
+
+func (x *UnitScope) GetImmutableUnitKeys() []string {
+	if x != nil {
+		return x.ImmutableUnitKeys
+	}
+	return nil
+}
+
+func (x *UnitScope) GetRequirementBriefRef() string {
+	if x != nil {
+		return x.RequirementBriefRef
+	}
+	return ""
+}
+
+func (x *UnitScope) GetRequirementBriefHash() string {
+	if x != nil {
+		return x.RequirementBriefHash
+	}
+	return ""
+}
+
+func (x *UnitScope) GetBaseUnitHash() string {
+	if x != nil {
+		return x.BaseUnitHash
+	}
+	return ""
+}
+
+func (x *UnitScope) GetUserFeedback() string {
+	if x != nil {
+		return x.UserFeedback
+	}
+	return ""
+}
+
+func (x *UnitScope) GetScopeHash() string {
+	if x != nil {
+		return x.ScopeHash
+	}
+	return ""
+}
+
+type SourceAuthority struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	SourceKind      string                 `protobuf:"bytes,1,opt,name=source_kind,json=sourceKind,proto3" json:"source_kind,omitempty"`
+	BindingId       string                 `protobuf:"bytes,2,opt,name=binding_id,json=bindingId,proto3" json:"binding_id,omitempty"`
+	SourceId        string                 `protobuf:"bytes,3,opt,name=source_id,json=sourceId,proto3" json:"source_id,omitempty"`
+	SourceVersion   string                 `protobuf:"bytes,4,opt,name=source_version,json=sourceVersion,proto3" json:"source_version,omitempty"`
+	AccessScopeHash string                 `protobuf:"bytes,5,opt,name=access_scope_hash,json=accessScopeHash,proto3" json:"access_scope_hash,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *SourceAuthority) Reset() {
+	*x = SourceAuthority{}
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SourceAuthority) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SourceAuthority) ProtoMessage() {}
+
+func (x *SourceAuthority) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SourceAuthority.ProtoReflect.Descriptor instead.
+func (*SourceAuthority) Descriptor() ([]byte, []int) {
+	return file_agent_v1_agent_execution_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *SourceAuthority) GetSourceKind() string {
+	if x != nil {
+		return x.SourceKind
+	}
+	return ""
+}
+
+func (x *SourceAuthority) GetBindingId() string {
+	if x != nil {
+		return x.BindingId
+	}
+	return ""
+}
+
+func (x *SourceAuthority) GetSourceId() string {
+	if x != nil {
+		return x.SourceId
+	}
+	return ""
+}
+
+func (x *SourceAuthority) GetSourceVersion() string {
+	if x != nil {
+		return x.SourceVersion
+	}
+	return ""
+}
+
+func (x *SourceAuthority) GetAccessScopeHash() string {
+	if x != nil {
+		return x.AccessScopeHash
+	}
+	return ""
+}
+
+type RunBudget struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	MaxModelAttempts  int64                  `protobuf:"varint,1,opt,name=max_model_attempts,json=maxModelAttempts,proto3" json:"max_model_attempts,omitempty"`
+	MaxToolCalls      int64                  `protobuf:"varint,2,opt,name=max_tool_calls,json=maxToolCalls,proto3" json:"max_tool_calls,omitempty"`
+	MaxIterations     int64                  `protobuf:"varint,3,opt,name=max_iterations,json=maxIterations,proto3" json:"max_iterations,omitempty"`
+	MaxReplans        int64                  `protobuf:"varint,4,opt,name=max_replans,json=maxReplans,proto3" json:"max_replans,omitempty"`
+	MaxSupplements    int64                  `protobuf:"varint,5,opt,name=max_supplements,json=maxSupplements,proto3" json:"max_supplements,omitempty"`
+	MaxQualityRepairs int64                  `protobuf:"varint,6,opt,name=max_quality_repairs,json=maxQualityRepairs,proto3" json:"max_quality_repairs,omitempty"`
+	MaxInputTokens    int64                  `protobuf:"varint,7,opt,name=max_input_tokens,json=maxInputTokens,proto3" json:"max_input_tokens,omitempty"`
+	MaxOutputTokens   int64                  `protobuf:"varint,8,opt,name=max_output_tokens,json=maxOutputTokens,proto3" json:"max_output_tokens,omitempty"`
+	MaxElapsedMs      int64                  `protobuf:"varint,9,opt,name=max_elapsed_ms,json=maxElapsedMs,proto3" json:"max_elapsed_ms,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *RunBudget) Reset() {
+	*x = RunBudget{}
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RunBudget) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RunBudget) ProtoMessage() {}
+
+func (x *RunBudget) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RunBudget.ProtoReflect.Descriptor instead.
+func (*RunBudget) Descriptor() ([]byte, []int) {
+	return file_agent_v1_agent_execution_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *RunBudget) GetMaxModelAttempts() int64 {
+	if x != nil {
+		return x.MaxModelAttempts
+	}
+	return 0
+}
+
+func (x *RunBudget) GetMaxToolCalls() int64 {
+	if x != nil {
+		return x.MaxToolCalls
+	}
+	return 0
+}
+
+func (x *RunBudget) GetMaxIterations() int64 {
+	if x != nil {
+		return x.MaxIterations
+	}
+	return 0
+}
+
+func (x *RunBudget) GetMaxReplans() int64 {
+	if x != nil {
+		return x.MaxReplans
+	}
+	return 0
+}
+
+func (x *RunBudget) GetMaxSupplements() int64 {
+	if x != nil {
+		return x.MaxSupplements
+	}
+	return 0
+}
+
+func (x *RunBudget) GetMaxQualityRepairs() int64 {
+	if x != nil {
+		return x.MaxQualityRepairs
+	}
+	return 0
+}
+
+func (x *RunBudget) GetMaxInputTokens() int64 {
+	if x != nil {
+		return x.MaxInputTokens
+	}
+	return 0
+}
+
+func (x *RunBudget) GetMaxOutputTokens() int64 {
+	if x != nil {
+		return x.MaxOutputTokens
+	}
+	return 0
+}
+
+func (x *RunBudget) GetMaxElapsedMs() int64 {
+	if x != nil {
+		return x.MaxElapsedMs
+	}
+	return 0
+}
+
+type BudgetDelta struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	ModelAttempts  int64                  `protobuf:"varint,1,opt,name=model_attempts,json=modelAttempts,proto3" json:"model_attempts,omitempty"`
+	ToolCalls      int64                  `protobuf:"varint,2,opt,name=tool_calls,json=toolCalls,proto3" json:"tool_calls,omitempty"`
+	Iterations     int64                  `protobuf:"varint,3,opt,name=iterations,proto3" json:"iterations,omitempty"`
+	Replans        int64                  `protobuf:"varint,4,opt,name=replans,proto3" json:"replans,omitempty"`
+	Supplements    int64                  `protobuf:"varint,5,opt,name=supplements,proto3" json:"supplements,omitempty"`
+	QualityRepairs int64                  `protobuf:"varint,6,opt,name=quality_repairs,json=qualityRepairs,proto3" json:"quality_repairs,omitempty"`
+	InputTokens    int64                  `protobuf:"varint,7,opt,name=input_tokens,json=inputTokens,proto3" json:"input_tokens,omitempty"`
+	OutputTokens   int64                  `protobuf:"varint,8,opt,name=output_tokens,json=outputTokens,proto3" json:"output_tokens,omitempty"`
+	ElapsedMs      int64                  `protobuf:"varint,9,opt,name=elapsed_ms,json=elapsedMs,proto3" json:"elapsed_ms,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *BudgetDelta) Reset() {
+	*x = BudgetDelta{}
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BudgetDelta) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BudgetDelta) ProtoMessage() {}
+
+func (x *BudgetDelta) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BudgetDelta.ProtoReflect.Descriptor instead.
+func (*BudgetDelta) Descriptor() ([]byte, []int) {
+	return file_agent_v1_agent_execution_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *BudgetDelta) GetModelAttempts() int64 {
+	if x != nil {
+		return x.ModelAttempts
+	}
+	return 0
+}
+
+func (x *BudgetDelta) GetToolCalls() int64 {
+	if x != nil {
+		return x.ToolCalls
+	}
+	return 0
+}
+
+func (x *BudgetDelta) GetIterations() int64 {
+	if x != nil {
+		return x.Iterations
+	}
+	return 0
+}
+
+func (x *BudgetDelta) GetReplans() int64 {
+	if x != nil {
+		return x.Replans
+	}
+	return 0
+}
+
+func (x *BudgetDelta) GetSupplements() int64 {
+	if x != nil {
+		return x.Supplements
+	}
+	return 0
+}
+
+func (x *BudgetDelta) GetQualityRepairs() int64 {
+	if x != nil {
+		return x.QualityRepairs
+	}
+	return 0
+}
+
+func (x *BudgetDelta) GetInputTokens() int64 {
+	if x != nil {
+		return x.InputTokens
+	}
+	return 0
+}
+
+func (x *BudgetDelta) GetOutputTokens() int64 {
+	if x != nil {
+		return x.OutputTokens
+	}
+	return 0
+}
+
+func (x *BudgetDelta) GetElapsedMs() int64 {
+	if x != nil {
+		return x.ElapsedMs
+	}
+	return 0
+}
+
+type ConsumedBudget struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	ModelAttempts  int64                  `protobuf:"varint,1,opt,name=model_attempts,json=modelAttempts,proto3" json:"model_attempts,omitempty"`
+	ToolCalls      int64                  `protobuf:"varint,2,opt,name=tool_calls,json=toolCalls,proto3" json:"tool_calls,omitempty"`
+	Iterations     int64                  `protobuf:"varint,3,opt,name=iterations,proto3" json:"iterations,omitempty"`
+	Replans        int64                  `protobuf:"varint,4,opt,name=replans,proto3" json:"replans,omitempty"`
+	Supplements    int64                  `protobuf:"varint,5,opt,name=supplements,proto3" json:"supplements,omitempty"`
+	QualityRepairs int64                  `protobuf:"varint,6,opt,name=quality_repairs,json=qualityRepairs,proto3" json:"quality_repairs,omitempty"`
+	InputTokens    int64                  `protobuf:"varint,7,opt,name=input_tokens,json=inputTokens,proto3" json:"input_tokens,omitempty"`
+	OutputTokens   int64                  `protobuf:"varint,8,opt,name=output_tokens,json=outputTokens,proto3" json:"output_tokens,omitempty"`
+	ElapsedMs      int64                  `protobuf:"varint,9,opt,name=elapsed_ms,json=elapsedMs,proto3" json:"elapsed_ms,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *ConsumedBudget) Reset() {
+	*x = ConsumedBudget{}
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ConsumedBudget) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ConsumedBudget) ProtoMessage() {}
+
+func (x *ConsumedBudget) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ConsumedBudget.ProtoReflect.Descriptor instead.
+func (*ConsumedBudget) Descriptor() ([]byte, []int) {
+	return file_agent_v1_agent_execution_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *ConsumedBudget) GetModelAttempts() int64 {
+	if x != nil {
+		return x.ModelAttempts
+	}
+	return 0
+}
+
+func (x *ConsumedBudget) GetToolCalls() int64 {
+	if x != nil {
+		return x.ToolCalls
+	}
+	return 0
+}
+
+func (x *ConsumedBudget) GetIterations() int64 {
+	if x != nil {
+		return x.Iterations
+	}
+	return 0
+}
+
+func (x *ConsumedBudget) GetReplans() int64 {
+	if x != nil {
+		return x.Replans
+	}
+	return 0
+}
+
+func (x *ConsumedBudget) GetSupplements() int64 {
+	if x != nil {
+		return x.Supplements
+	}
+	return 0
+}
+
+func (x *ConsumedBudget) GetQualityRepairs() int64 {
+	if x != nil {
+		return x.QualityRepairs
+	}
+	return 0
+}
+
+func (x *ConsumedBudget) GetInputTokens() int64 {
+	if x != nil {
+		return x.InputTokens
+	}
+	return 0
+}
+
+func (x *ConsumedBudget) GetOutputTokens() int64 {
+	if x != nil {
+		return x.OutputTokens
+	}
+	return 0
+}
+
+func (x *ConsumedBudget) GetElapsedMs() int64 {
+	if x != nil {
+		return x.ElapsedMs
+	}
+	return 0
+}
+
+type RunLedgerEntry struct {
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	EntryId            string                 `protobuf:"bytes,1,opt,name=entry_id,json=entryId,proto3" json:"entry_id,omitempty"`
+	OperationKey       string                 `protobuf:"bytes,2,opt,name=operation_key,json=operationKey,proto3" json:"operation_key,omitempty"`
+	EntryKind          string                 `protobuf:"bytes,3,opt,name=entry_kind,json=entryKind,proto3" json:"entry_kind,omitempty"`
+	Operation          string                 `protobuf:"bytes,4,opt,name=operation,proto3" json:"operation,omitempty"`
+	RequestHash        string                 `protobuf:"bytes,5,opt,name=request_hash,json=requestHash,proto3" json:"request_hash,omitempty"`
+	Status             string                 `protobuf:"bytes,6,opt,name=status,proto3" json:"status,omitempty"`
+	Reservation        *BudgetDelta           `protobuf:"bytes,7,opt,name=reservation,proto3" json:"reservation,omitempty"`
+	Consumption        *BudgetDelta           `protobuf:"bytes,8,opt,name=consumption,proto3" json:"consumption,omitempty"`
+	OutputArtifactKey  string                 `protobuf:"bytes,9,opt,name=output_artifact_key,json=outputArtifactKey,proto3" json:"output_artifact_key,omitempty"`
+	OutputArtifactHash string                 `protobuf:"bytes,10,opt,name=output_artifact_hash,json=outputArtifactHash,proto3" json:"output_artifact_hash,omitempty"`
+	EvidenceRefs       []string               `protobuf:"bytes,11,rep,name=evidence_refs,json=evidenceRefs,proto3" json:"evidence_refs,omitempty"`
+	ErrorCategory      string                 `protobuf:"bytes,12,opt,name=error_category,json=errorCategory,proto3" json:"error_category,omitempty"`
+	Retryable          bool                   `protobuf:"varint,13,opt,name=retryable,proto3" json:"retryable,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *RunLedgerEntry) Reset() {
+	*x = RunLedgerEntry{}
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RunLedgerEntry) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RunLedgerEntry) ProtoMessage() {}
+
+func (x *RunLedgerEntry) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RunLedgerEntry.ProtoReflect.Descriptor instead.
+func (*RunLedgerEntry) Descriptor() ([]byte, []int) {
+	return file_agent_v1_agent_execution_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *RunLedgerEntry) GetEntryId() string {
+	if x != nil {
+		return x.EntryId
+	}
+	return ""
+}
+
+func (x *RunLedgerEntry) GetOperationKey() string {
+	if x != nil {
+		return x.OperationKey
+	}
+	return ""
+}
+
+func (x *RunLedgerEntry) GetEntryKind() string {
+	if x != nil {
+		return x.EntryKind
+	}
+	return ""
+}
+
+func (x *RunLedgerEntry) GetOperation() string {
+	if x != nil {
+		return x.Operation
+	}
+	return ""
+}
+
+func (x *RunLedgerEntry) GetRequestHash() string {
+	if x != nil {
+		return x.RequestHash
+	}
+	return ""
+}
+
+func (x *RunLedgerEntry) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *RunLedgerEntry) GetReservation() *BudgetDelta {
+	if x != nil {
+		return x.Reservation
+	}
+	return nil
+}
+
+func (x *RunLedgerEntry) GetConsumption() *BudgetDelta {
+	if x != nil {
+		return x.Consumption
+	}
+	return nil
+}
+
+func (x *RunLedgerEntry) GetOutputArtifactKey() string {
+	if x != nil {
+		return x.OutputArtifactKey
+	}
+	return ""
+}
+
+func (x *RunLedgerEntry) GetOutputArtifactHash() string {
+	if x != nil {
+		return x.OutputArtifactHash
+	}
+	return ""
+}
+
+func (x *RunLedgerEntry) GetEvidenceRefs() []string {
+	if x != nil {
+		return x.EvidenceRefs
+	}
+	return nil
+}
+
+func (x *RunLedgerEntry) GetErrorCategory() string {
+	if x != nil {
+		return x.ErrorCategory
+	}
+	return ""
+}
+
+func (x *RunLedgerEntry) GetRetryable() bool {
+	if x != nil {
+		return x.Retryable
+	}
+	return false
+}
+
+type RunLedgerEvent struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	EventType     string                 `protobuf:"bytes,1,opt,name=event_type,json=eventType,proto3" json:"event_type,omitempty"`
+	Entry         *RunLedgerEntry        `protobuf:"bytes,2,opt,name=entry,proto3" json:"entry,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RunLedgerEvent) Reset() {
+	*x = RunLedgerEvent{}
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RunLedgerEvent) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RunLedgerEvent) ProtoMessage() {}
+
+func (x *RunLedgerEvent) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RunLedgerEvent.ProtoReflect.Descriptor instead.
+func (*RunLedgerEvent) Descriptor() ([]byte, []int) {
+	return file_agent_v1_agent_execution_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *RunLedgerEvent) GetEventType() string {
+	if x != nil {
+		return x.EventType
+	}
+	return ""
+}
+
+func (x *RunLedgerEvent) GetEntry() *RunLedgerEntry {
+	if x != nil {
+		return x.Entry
+	}
+	return nil
+}
+
 type GetRunContextResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Input         *AgentRunInput         `protobuf:"bytes,1,opt,name=input,proto3" json:"input,omitempty"`
@@ -494,7 +1572,7 @@ type GetRunContextResponse struct {
 
 func (x *GetRunContextResponse) Reset() {
 	*x = GetRunContextResponse{}
-	mi := &file_agent_v1_agent_execution_proto_msgTypes[6]
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -506,7 +1584,7 @@ func (x *GetRunContextResponse) String() string {
 func (*GetRunContextResponse) ProtoMessage() {}
 
 func (x *GetRunContextResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_execution_proto_msgTypes[6]
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -519,7 +1597,7 @@ func (x *GetRunContextResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetRunContextResponse.ProtoReflect.Descriptor instead.
 func (*GetRunContextResponse) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_execution_proto_rawDescGZIP(), []int{6}
+	return file_agent_v1_agent_execution_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *GetRunContextResponse) GetInput() *AgentRunInput {
@@ -539,7 +1617,7 @@ type HeartbeatRequest struct {
 
 func (x *HeartbeatRequest) Reset() {
 	*x = HeartbeatRequest{}
-	mi := &file_agent_v1_agent_execution_proto_msgTypes[7]
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -551,7 +1629,7 @@ func (x *HeartbeatRequest) String() string {
 func (*HeartbeatRequest) ProtoMessage() {}
 
 func (x *HeartbeatRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_execution_proto_msgTypes[7]
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -564,7 +1642,7 @@ func (x *HeartbeatRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HeartbeatRequest.ProtoReflect.Descriptor instead.
 func (*HeartbeatRequest) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_execution_proto_rawDescGZIP(), []int{7}
+	return file_agent_v1_agent_execution_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *HeartbeatRequest) GetLease() *LeaseContext {
@@ -590,7 +1668,7 @@ type HeartbeatResponse struct {
 
 func (x *HeartbeatResponse) Reset() {
 	*x = HeartbeatResponse{}
-	mi := &file_agent_v1_agent_execution_proto_msgTypes[8]
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -602,7 +1680,7 @@ func (x *HeartbeatResponse) String() string {
 func (*HeartbeatResponse) ProtoMessage() {}
 
 func (x *HeartbeatResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_execution_proto_msgTypes[8]
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -615,7 +1693,7 @@ func (x *HeartbeatResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HeartbeatResponse.ProtoReflect.Descriptor instead.
 func (*HeartbeatResponse) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_execution_proto_rawDescGZIP(), []int{8}
+	return file_agent_v1_agent_execution_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *HeartbeatResponse) GetLease() *LeaseContext {
@@ -644,7 +1722,7 @@ type RecordModelAttemptRequest struct {
 
 func (x *RecordModelAttemptRequest) Reset() {
 	*x = RecordModelAttemptRequest{}
-	mi := &file_agent_v1_agent_execution_proto_msgTypes[9]
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -656,7 +1734,7 @@ func (x *RecordModelAttemptRequest) String() string {
 func (*RecordModelAttemptRequest) ProtoMessage() {}
 
 func (x *RecordModelAttemptRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_execution_proto_msgTypes[9]
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -669,7 +1747,7 @@ func (x *RecordModelAttemptRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RecordModelAttemptRequest.ProtoReflect.Descriptor instead.
 func (*RecordModelAttemptRequest) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_execution_proto_rawDescGZIP(), []int{9}
+	return file_agent_v1_agent_execution_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *RecordModelAttemptRequest) GetLease() *LeaseContext {
@@ -758,7 +1836,7 @@ type AttemptReceipt struct {
 
 func (x *AttemptReceipt) Reset() {
 	*x = AttemptReceipt{}
-	mi := &file_agent_v1_agent_execution_proto_msgTypes[10]
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -770,7 +1848,7 @@ func (x *AttemptReceipt) String() string {
 func (*AttemptReceipt) ProtoMessage() {}
 
 func (x *AttemptReceipt) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_execution_proto_msgTypes[10]
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -783,7 +1861,7 @@ func (x *AttemptReceipt) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AttemptReceipt.ProtoReflect.Descriptor instead.
 func (*AttemptReceipt) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_execution_proto_rawDescGZIP(), []int{10}
+	return file_agent_v1_agent_execution_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *AttemptReceipt) GetAttemptId() string {
@@ -802,7 +1880,7 @@ type RecordModelAttemptResponse struct {
 
 func (x *RecordModelAttemptResponse) Reset() {
 	*x = RecordModelAttemptResponse{}
-	mi := &file_agent_v1_agent_execution_proto_msgTypes[11]
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -814,7 +1892,7 @@ func (x *RecordModelAttemptResponse) String() string {
 func (*RecordModelAttemptResponse) ProtoMessage() {}
 
 func (x *RecordModelAttemptResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_execution_proto_msgTypes[11]
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -827,7 +1905,7 @@ func (x *RecordModelAttemptResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RecordModelAttemptResponse.ProtoReflect.Descriptor instead.
 func (*RecordModelAttemptResponse) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_execution_proto_rawDescGZIP(), []int{11}
+	return file_agent_v1_agent_execution_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *RecordModelAttemptResponse) GetReceipt() *AttemptReceipt {
@@ -848,7 +1926,7 @@ type AppendEvidenceRequest struct {
 
 func (x *AppendEvidenceRequest) Reset() {
 	*x = AppendEvidenceRequest{}
-	mi := &file_agent_v1_agent_execution_proto_msgTypes[12]
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -860,7 +1938,7 @@ func (x *AppendEvidenceRequest) String() string {
 func (*AppendEvidenceRequest) ProtoMessage() {}
 
 func (x *AppendEvidenceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_execution_proto_msgTypes[12]
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -873,7 +1951,7 @@ func (x *AppendEvidenceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AppendEvidenceRequest.ProtoReflect.Descriptor instead.
 func (*AppendEvidenceRequest) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_execution_proto_rawDescGZIP(), []int{12}
+	return file_agent_v1_agent_execution_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *AppendEvidenceRequest) GetLease() *LeaseContext {
@@ -898,19 +1976,24 @@ func (x *AppendEvidenceRequest) GetMeta() *RequestMeta {
 }
 
 type EvidenceItem struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	SourceType    string                 `protobuf:"bytes,1,opt,name=source_type,json=sourceType,proto3" json:"source_type,omitempty"`
-	SourceId      string                 `protobuf:"bytes,2,opt,name=source_id,json=sourceId,proto3" json:"source_id,omitempty"`
-	Locator       string                 `protobuf:"bytes,3,opt,name=locator,proto3" json:"locator,omitempty"`
-	ExcerptHash   string                 `protobuf:"bytes,4,opt,name=excerpt_hash,json=excerptHash,proto3" json:"excerpt_hash,omitempty"`
-	Excerpt       string                 `protobuf:"bytes,5,opt,name=excerpt,proto3" json:"excerpt,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	SourceType      string                 `protobuf:"bytes,1,opt,name=source_type,json=sourceType,proto3" json:"source_type,omitempty"`
+	SourceId        string                 `protobuf:"bytes,2,opt,name=source_id,json=sourceId,proto3" json:"source_id,omitempty"`
+	Locator         string                 `protobuf:"bytes,3,opt,name=locator,proto3" json:"locator,omitempty"`
+	ExcerptHash     string                 `protobuf:"bytes,4,opt,name=excerpt_hash,json=excerptHash,proto3" json:"excerpt_hash,omitempty"`
+	Excerpt         string                 `protobuf:"bytes,5,opt,name=excerpt,proto3" json:"excerpt,omitempty"`
+	SourceKind      string                 `protobuf:"bytes,6,opt,name=source_kind,json=sourceKind,proto3" json:"source_kind,omitempty"`
+	BindingId       string                 `protobuf:"bytes,7,opt,name=binding_id,json=bindingId,proto3" json:"binding_id,omitempty"`
+	SourceVersion   string                 `protobuf:"bytes,8,opt,name=source_version,json=sourceVersion,proto3" json:"source_version,omitempty"`
+	AccessScopeHash string                 `protobuf:"bytes,9,opt,name=access_scope_hash,json=accessScopeHash,proto3" json:"access_scope_hash,omitempty"`
+	OutcomeKind     string                 `protobuf:"bytes,10,opt,name=outcome_kind,json=outcomeKind,proto3" json:"outcome_kind,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *EvidenceItem) Reset() {
 	*x = EvidenceItem{}
-	mi := &file_agent_v1_agent_execution_proto_msgTypes[13]
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -922,7 +2005,7 @@ func (x *EvidenceItem) String() string {
 func (*EvidenceItem) ProtoMessage() {}
 
 func (x *EvidenceItem) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_execution_proto_msgTypes[13]
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -935,7 +2018,7 @@ func (x *EvidenceItem) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EvidenceItem.ProtoReflect.Descriptor instead.
 func (*EvidenceItem) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_execution_proto_rawDescGZIP(), []int{13}
+	return file_agent_v1_agent_execution_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *EvidenceItem) GetSourceType() string {
@@ -973,6 +2056,41 @@ func (x *EvidenceItem) GetExcerpt() string {
 	return ""
 }
 
+func (x *EvidenceItem) GetSourceKind() string {
+	if x != nil {
+		return x.SourceKind
+	}
+	return ""
+}
+
+func (x *EvidenceItem) GetBindingId() string {
+	if x != nil {
+		return x.BindingId
+	}
+	return ""
+}
+
+func (x *EvidenceItem) GetSourceVersion() string {
+	if x != nil {
+		return x.SourceVersion
+	}
+	return ""
+}
+
+func (x *EvidenceItem) GetAccessScopeHash() string {
+	if x != nil {
+		return x.AccessScopeHash
+	}
+	return ""
+}
+
+func (x *EvidenceItem) GetOutcomeKind() string {
+	if x != nil {
+		return x.OutcomeKind
+	}
+	return ""
+}
+
 type EvidenceReceipt struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	AcceptedCount int64                  `protobuf:"varint,1,opt,name=accepted_count,json=acceptedCount,proto3" json:"accepted_count,omitempty"`
@@ -982,7 +2100,7 @@ type EvidenceReceipt struct {
 
 func (x *EvidenceReceipt) Reset() {
 	*x = EvidenceReceipt{}
-	mi := &file_agent_v1_agent_execution_proto_msgTypes[14]
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -994,7 +2112,7 @@ func (x *EvidenceReceipt) String() string {
 func (*EvidenceReceipt) ProtoMessage() {}
 
 func (x *EvidenceReceipt) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_execution_proto_msgTypes[14]
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1007,7 +2125,7 @@ func (x *EvidenceReceipt) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EvidenceReceipt.ProtoReflect.Descriptor instead.
 func (*EvidenceReceipt) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_execution_proto_rawDescGZIP(), []int{14}
+	return file_agent_v1_agent_execution_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *EvidenceReceipt) GetAcceptedCount() int64 {
@@ -1026,7 +2144,7 @@ type AppendEvidenceResponse struct {
 
 func (x *AppendEvidenceResponse) Reset() {
 	*x = AppendEvidenceResponse{}
-	mi := &file_agent_v1_agent_execution_proto_msgTypes[15]
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1038,7 +2156,7 @@ func (x *AppendEvidenceResponse) String() string {
 func (*AppendEvidenceResponse) ProtoMessage() {}
 
 func (x *AppendEvidenceResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_execution_proto_msgTypes[15]
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1051,7 +2169,7 @@ func (x *AppendEvidenceResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AppendEvidenceResponse.ProtoReflect.Descriptor instead.
 func (*AppendEvidenceResponse) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_execution_proto_rawDescGZIP(), []int{15}
+	return file_agent_v1_agent_execution_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *AppendEvidenceResponse) GetReceipt() *EvidenceReceipt {
@@ -1075,7 +2193,7 @@ type RunArtifact struct {
 
 func (x *RunArtifact) Reset() {
 	*x = RunArtifact{}
-	mi := &file_agent_v1_agent_execution_proto_msgTypes[16]
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1087,7 +2205,7 @@ func (x *RunArtifact) String() string {
 func (*RunArtifact) ProtoMessage() {}
 
 func (x *RunArtifact) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_execution_proto_msgTypes[16]
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1100,7 +2218,7 @@ func (x *RunArtifact) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunArtifact.ProtoReflect.Descriptor instead.
 func (*RunArtifact) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_execution_proto_rawDescGZIP(), []int{16}
+	return file_agent_v1_agent_execution_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *RunArtifact) GetArtifactKey() string {
@@ -1158,7 +2276,7 @@ type RevisionScope struct {
 
 func (x *RevisionScope) Reset() {
 	*x = RevisionScope{}
-	mi := &file_agent_v1_agent_execution_proto_msgTypes[17]
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1170,7 +2288,7 @@ func (x *RevisionScope) String() string {
 func (*RevisionScope) ProtoMessage() {}
 
 func (x *RevisionScope) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_execution_proto_msgTypes[17]
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1183,7 +2301,7 @@ func (x *RevisionScope) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RevisionScope.ProtoReflect.Descriptor instead.
 func (*RevisionScope) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_execution_proto_rawDescGZIP(), []int{17}
+	return file_agent_v1_agent_execution_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *RevisionScope) GetBaseDraftId() string {
@@ -1233,7 +2351,7 @@ type SubmittedDraftReceipt struct {
 
 func (x *SubmittedDraftReceipt) Reset() {
 	*x = SubmittedDraftReceipt{}
-	mi := &file_agent_v1_agent_execution_proto_msgTypes[18]
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1245,7 +2363,7 @@ func (x *SubmittedDraftReceipt) String() string {
 func (*SubmittedDraftReceipt) ProtoMessage() {}
 
 func (x *SubmittedDraftReceipt) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_execution_proto_msgTypes[18]
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1258,7 +2376,7 @@ func (x *SubmittedDraftReceipt) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SubmittedDraftReceipt.ProtoReflect.Descriptor instead.
 func (*SubmittedDraftReceipt) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_execution_proto_rawDescGZIP(), []int{18}
+	return file_agent_v1_agent_execution_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *SubmittedDraftReceipt) GetDraftKey() string {
@@ -1289,6 +2407,166 @@ func (x *SubmittedDraftReceipt) GetContent() []byte {
 	return nil
 }
 
+type RunArtifactIdentity struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ArtifactKey   string                 `protobuf:"bytes,1,opt,name=artifact_key,json=artifactKey,proto3" json:"artifact_key,omitempty"`
+	ArtifactType  string                 `protobuf:"bytes,2,opt,name=artifact_type,json=artifactType,proto3" json:"artifact_type,omitempty"`
+	Generation    int64                  `protobuf:"varint,3,opt,name=generation,proto3" json:"generation,omitempty"`
+	RequestHash   string                 `protobuf:"bytes,4,opt,name=request_hash,json=requestHash,proto3" json:"request_hash,omitempty"`
+	ContentHash   string                 `protobuf:"bytes,5,opt,name=content_hash,json=contentHash,proto3" json:"content_hash,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RunArtifactIdentity) Reset() {
+	*x = RunArtifactIdentity{}
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[27]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RunArtifactIdentity) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RunArtifactIdentity) ProtoMessage() {}
+
+func (x *RunArtifactIdentity) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[27]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RunArtifactIdentity.ProtoReflect.Descriptor instead.
+func (*RunArtifactIdentity) Descriptor() ([]byte, []int) {
+	return file_agent_v1_agent_execution_proto_rawDescGZIP(), []int{27}
+}
+
+func (x *RunArtifactIdentity) GetArtifactKey() string {
+	if x != nil {
+		return x.ArtifactKey
+	}
+	return ""
+}
+
+func (x *RunArtifactIdentity) GetArtifactType() string {
+	if x != nil {
+		return x.ArtifactType
+	}
+	return ""
+}
+
+func (x *RunArtifactIdentity) GetGeneration() int64 {
+	if x != nil {
+		return x.Generation
+	}
+	return 0
+}
+
+func (x *RunArtifactIdentity) GetRequestHash() string {
+	if x != nil {
+		return x.RequestHash
+	}
+	return ""
+}
+
+func (x *RunArtifactIdentity) GetContentHash() string {
+	if x != nil {
+		return x.ContentHash
+	}
+	return ""
+}
+
+type ResumeStateSummary struct {
+	state                     protoimpl.MessageState `protogen:"open.v1"`
+	CheckpointContentHash     string                 `protobuf:"bytes,1,opt,name=checkpoint_content_hash,json=checkpointContentHash,proto3" json:"checkpoint_content_hash,omitempty"`
+	TerminalModelAttemptCount int64                  `protobuf:"varint,2,opt,name=terminal_model_attempt_count,json=terminalModelAttemptCount,proto3" json:"terminal_model_attempt_count,omitempty"`
+	EvidenceCount             int64                  `protobuf:"varint,3,opt,name=evidence_count,json=evidenceCount,proto3" json:"evidence_count,omitempty"`
+	EvidenceRefs              []string               `protobuf:"bytes,4,rep,name=evidence_refs,json=evidenceRefs,proto3" json:"evidence_refs,omitempty"`
+	ArtifactCount             int64                  `protobuf:"varint,5,opt,name=artifact_count,json=artifactCount,proto3" json:"artifact_count,omitempty"`
+	Artifacts                 []*RunArtifactIdentity `protobuf:"bytes,6,rep,name=artifacts,proto3" json:"artifacts,omitempty"`
+	unknownFields             protoimpl.UnknownFields
+	sizeCache                 protoimpl.SizeCache
+}
+
+func (x *ResumeStateSummary) Reset() {
+	*x = ResumeStateSummary{}
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[28]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ResumeStateSummary) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ResumeStateSummary) ProtoMessage() {}
+
+func (x *ResumeStateSummary) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[28]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ResumeStateSummary.ProtoReflect.Descriptor instead.
+func (*ResumeStateSummary) Descriptor() ([]byte, []int) {
+	return file_agent_v1_agent_execution_proto_rawDescGZIP(), []int{28}
+}
+
+func (x *ResumeStateSummary) GetCheckpointContentHash() string {
+	if x != nil {
+		return x.CheckpointContentHash
+	}
+	return ""
+}
+
+func (x *ResumeStateSummary) GetTerminalModelAttemptCount() int64 {
+	if x != nil {
+		return x.TerminalModelAttemptCount
+	}
+	return 0
+}
+
+func (x *ResumeStateSummary) GetEvidenceCount() int64 {
+	if x != nil {
+		return x.EvidenceCount
+	}
+	return 0
+}
+
+func (x *ResumeStateSummary) GetEvidenceRefs() []string {
+	if x != nil {
+		return x.EvidenceRefs
+	}
+	return nil
+}
+
+func (x *ResumeStateSummary) GetArtifactCount() int64 {
+	if x != nil {
+		return x.ArtifactCount
+	}
+	return 0
+}
+
+func (x *ResumeStateSummary) GetArtifacts() []*RunArtifactIdentity {
+	if x != nil {
+		return x.Artifacts
+	}
+	return nil
+}
+
 type SaveRunArtifactRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Lease         *LeaseContext          `protobuf:"bytes,1,opt,name=lease,proto3" json:"lease,omitempty"`
@@ -1300,7 +2578,7 @@ type SaveRunArtifactRequest struct {
 
 func (x *SaveRunArtifactRequest) Reset() {
 	*x = SaveRunArtifactRequest{}
-	mi := &file_agent_v1_agent_execution_proto_msgTypes[19]
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1312,7 +2590,7 @@ func (x *SaveRunArtifactRequest) String() string {
 func (*SaveRunArtifactRequest) ProtoMessage() {}
 
 func (x *SaveRunArtifactRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_execution_proto_msgTypes[19]
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1325,7 +2603,7 @@ func (x *SaveRunArtifactRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SaveRunArtifactRequest.ProtoReflect.Descriptor instead.
 func (*SaveRunArtifactRequest) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_execution_proto_rawDescGZIP(), []int{19}
+	return file_agent_v1_agent_execution_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *SaveRunArtifactRequest) GetLease() *LeaseContext {
@@ -1359,7 +2637,7 @@ type RunArtifactReceipt struct {
 
 func (x *RunArtifactReceipt) Reset() {
 	*x = RunArtifactReceipt{}
-	mi := &file_agent_v1_agent_execution_proto_msgTypes[20]
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1371,7 +2649,7 @@ func (x *RunArtifactReceipt) String() string {
 func (*RunArtifactReceipt) ProtoMessage() {}
 
 func (x *RunArtifactReceipt) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_execution_proto_msgTypes[20]
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1384,7 +2662,7 @@ func (x *RunArtifactReceipt) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunArtifactReceipt.ProtoReflect.Descriptor instead.
 func (*RunArtifactReceipt) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_execution_proto_rawDescGZIP(), []int{20}
+	return file_agent_v1_agent_execution_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *RunArtifactReceipt) GetArtifactKey() string {
@@ -1410,7 +2688,7 @@ type SaveRunArtifactResponse struct {
 
 func (x *SaveRunArtifactResponse) Reset() {
 	*x = SaveRunArtifactResponse{}
-	mi := &file_agent_v1_agent_execution_proto_msgTypes[21]
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1422,7 +2700,7 @@ func (x *SaveRunArtifactResponse) String() string {
 func (*SaveRunArtifactResponse) ProtoMessage() {}
 
 func (x *SaveRunArtifactResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_execution_proto_msgTypes[21]
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1435,7 +2713,7 @@ func (x *SaveRunArtifactResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SaveRunArtifactResponse.ProtoReflect.Descriptor instead.
 func (*SaveRunArtifactResponse) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_execution_proto_rawDescGZIP(), []int{21}
+	return file_agent_v1_agent_execution_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *SaveRunArtifactResponse) GetReceipt() *RunArtifactReceipt {
@@ -1457,7 +2735,7 @@ type SaveCheckpointRequest struct {
 
 func (x *SaveCheckpointRequest) Reset() {
 	*x = SaveCheckpointRequest{}
-	mi := &file_agent_v1_agent_execution_proto_msgTypes[22]
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1469,7 +2747,7 @@ func (x *SaveCheckpointRequest) String() string {
 func (*SaveCheckpointRequest) ProtoMessage() {}
 
 func (x *SaveCheckpointRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_execution_proto_msgTypes[22]
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1482,7 +2760,7 @@ func (x *SaveCheckpointRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SaveCheckpointRequest.ProtoReflect.Descriptor instead.
 func (*SaveCheckpointRequest) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_execution_proto_rawDescGZIP(), []int{22}
+	return file_agent_v1_agent_execution_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *SaveCheckpointRequest) GetLease() *LeaseContext {
@@ -1523,7 +2801,7 @@ type CheckpointReceipt struct {
 
 func (x *CheckpointReceipt) Reset() {
 	*x = CheckpointReceipt{}
-	mi := &file_agent_v1_agent_execution_proto_msgTypes[23]
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1535,7 +2813,7 @@ func (x *CheckpointReceipt) String() string {
 func (*CheckpointReceipt) ProtoMessage() {}
 
 func (x *CheckpointReceipt) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_execution_proto_msgTypes[23]
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1548,7 +2826,7 @@ func (x *CheckpointReceipt) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CheckpointReceipt.ProtoReflect.Descriptor instead.
 func (*CheckpointReceipt) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_execution_proto_rawDescGZIP(), []int{23}
+	return file_agent_v1_agent_execution_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *CheckpointReceipt) GetSequence() int64 {
@@ -1574,7 +2852,7 @@ type SaveCheckpointResponse struct {
 
 func (x *SaveCheckpointResponse) Reset() {
 	*x = SaveCheckpointResponse{}
-	mi := &file_agent_v1_agent_execution_proto_msgTypes[24]
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1586,7 +2864,7 @@ func (x *SaveCheckpointResponse) String() string {
 func (*SaveCheckpointResponse) ProtoMessage() {}
 
 func (x *SaveCheckpointResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_execution_proto_msgTypes[24]
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1599,7 +2877,7 @@ func (x *SaveCheckpointResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SaveCheckpointResponse.ProtoReflect.Descriptor instead.
 func (*SaveCheckpointResponse) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_execution_proto_rawDescGZIP(), []int{24}
+	return file_agent_v1_agent_execution_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *SaveCheckpointResponse) GetReceipt() *CheckpointReceipt {
@@ -1622,7 +2900,7 @@ type SubmitDraftRequest struct {
 
 func (x *SubmitDraftRequest) Reset() {
 	*x = SubmitDraftRequest{}
-	mi := &file_agent_v1_agent_execution_proto_msgTypes[25]
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1634,7 +2912,7 @@ func (x *SubmitDraftRequest) String() string {
 func (*SubmitDraftRequest) ProtoMessage() {}
 
 func (x *SubmitDraftRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_execution_proto_msgTypes[25]
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1647,7 +2925,7 @@ func (x *SubmitDraftRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SubmitDraftRequest.ProtoReflect.Descriptor instead.
 func (*SubmitDraftRequest) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_execution_proto_rawDescGZIP(), []int{25}
+	return file_agent_v1_agent_execution_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *SubmitDraftRequest) GetLease() *LeaseContext {
@@ -1694,7 +2972,7 @@ type DraftReceipt struct {
 
 func (x *DraftReceipt) Reset() {
 	*x = DraftReceipt{}
-	mi := &file_agent_v1_agent_execution_proto_msgTypes[26]
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1706,7 +2984,7 @@ func (x *DraftReceipt) String() string {
 func (*DraftReceipt) ProtoMessage() {}
 
 func (x *DraftReceipt) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_execution_proto_msgTypes[26]
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1719,7 +2997,7 @@ func (x *DraftReceipt) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DraftReceipt.ProtoReflect.Descriptor instead.
 func (*DraftReceipt) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_execution_proto_rawDescGZIP(), []int{26}
+	return file_agent_v1_agent_execution_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *DraftReceipt) GetTaskVersion() int64 {
@@ -1738,7 +3016,7 @@ type SubmitDraftResponse struct {
 
 func (x *SubmitDraftResponse) Reset() {
 	*x = SubmitDraftResponse{}
-	mi := &file_agent_v1_agent_execution_proto_msgTypes[27]
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1750,7 +3028,7 @@ func (x *SubmitDraftResponse) String() string {
 func (*SubmitDraftResponse) ProtoMessage() {}
 
 func (x *SubmitDraftResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_execution_proto_msgTypes[27]
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1763,10 +3041,274 @@ func (x *SubmitDraftResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SubmitDraftResponse.ProtoReflect.Descriptor instead.
 func (*SubmitDraftResponse) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_execution_proto_rawDescGZIP(), []int{27}
+	return file_agent_v1_agent_execution_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *SubmitDraftResponse) GetReceipt() *DraftReceipt {
+	if x != nil {
+		return x.Receipt
+	}
+	return nil
+}
+
+type RunOutput struct {
+	state               protoimpl.MessageState `protogen:"open.v1"`
+	SchemaVersion       string                 `protobuf:"bytes,1,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"`
+	OutputKey           string                 `protobuf:"bytes,2,opt,name=output_key,json=outputKey,proto3" json:"output_key,omitempty"`
+	OutputKind          RunOutputKind          `protobuf:"varint,3,opt,name=output_kind,json=outputKind,proto3,enum=agent.v1.RunOutputKind" json:"output_kind,omitempty"`
+	RunPurpose          RunPurpose             `protobuf:"varint,4,opt,name=run_purpose,json=runPurpose,proto3,enum=agent.v1.RunPurpose" json:"run_purpose,omitempty"`
+	ScopeHash           string                 `protobuf:"bytes,5,opt,name=scope_hash,json=scopeHash,proto3" json:"scope_hash,omitempty"`
+	ExpectedTaskVersion int64                  `protobuf:"varint,6,opt,name=expected_task_version,json=expectedTaskVersion,proto3" json:"expected_task_version,omitempty"`
+	ContentHash         string                 `protobuf:"bytes,7,opt,name=content_hash,json=contentHash,proto3" json:"content_hash,omitempty"`
+	Payload             []byte                 `protobuf:"bytes,8,opt,name=payload,proto3" json:"payload,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
+}
+
+func (x *RunOutput) Reset() {
+	*x = RunOutput{}
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[38]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RunOutput) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RunOutput) ProtoMessage() {}
+
+func (x *RunOutput) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[38]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RunOutput.ProtoReflect.Descriptor instead.
+func (*RunOutput) Descriptor() ([]byte, []int) {
+	return file_agent_v1_agent_execution_proto_rawDescGZIP(), []int{38}
+}
+
+func (x *RunOutput) GetSchemaVersion() string {
+	if x != nil {
+		return x.SchemaVersion
+	}
+	return ""
+}
+
+func (x *RunOutput) GetOutputKey() string {
+	if x != nil {
+		return x.OutputKey
+	}
+	return ""
+}
+
+func (x *RunOutput) GetOutputKind() RunOutputKind {
+	if x != nil {
+		return x.OutputKind
+	}
+	return RunOutputKind_RUN_OUTPUT_KIND_UNSPECIFIED
+}
+
+func (x *RunOutput) GetRunPurpose() RunPurpose {
+	if x != nil {
+		return x.RunPurpose
+	}
+	return RunPurpose_RUN_PURPOSE_UNSPECIFIED
+}
+
+func (x *RunOutput) GetScopeHash() string {
+	if x != nil {
+		return x.ScopeHash
+	}
+	return ""
+}
+
+func (x *RunOutput) GetExpectedTaskVersion() int64 {
+	if x != nil {
+		return x.ExpectedTaskVersion
+	}
+	return 0
+}
+
+func (x *RunOutput) GetContentHash() string {
+	if x != nil {
+		return x.ContentHash
+	}
+	return ""
+}
+
+func (x *RunOutput) GetPayload() []byte {
+	if x != nil {
+		return x.Payload
+	}
+	return nil
+}
+
+type SubmitRunOutputRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Lease         *LeaseContext          `protobuf:"bytes,1,opt,name=lease,proto3" json:"lease,omitempty"`
+	Output        *RunOutput             `protobuf:"bytes,2,opt,name=output,proto3" json:"output,omitempty"`
+	Meta          *RequestMeta           `protobuf:"bytes,3,opt,name=meta,proto3" json:"meta,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SubmitRunOutputRequest) Reset() {
+	*x = SubmitRunOutputRequest{}
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[39]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SubmitRunOutputRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SubmitRunOutputRequest) ProtoMessage() {}
+
+func (x *SubmitRunOutputRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[39]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SubmitRunOutputRequest.ProtoReflect.Descriptor instead.
+func (*SubmitRunOutputRequest) Descriptor() ([]byte, []int) {
+	return file_agent_v1_agent_execution_proto_rawDescGZIP(), []int{39}
+}
+
+func (x *SubmitRunOutputRequest) GetLease() *LeaseContext {
+	if x != nil {
+		return x.Lease
+	}
+	return nil
+}
+
+func (x *SubmitRunOutputRequest) GetOutput() *RunOutput {
+	if x != nil {
+		return x.Output
+	}
+	return nil
+}
+
+func (x *SubmitRunOutputRequest) GetMeta() *RequestMeta {
+	if x != nil {
+		return x.Meta
+	}
+	return nil
+}
+
+type RunOutputReceipt struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	OutputKey     string                 `protobuf:"bytes,1,opt,name=output_key,json=outputKey,proto3" json:"output_key,omitempty"`
+	ContentHash   string                 `protobuf:"bytes,2,opt,name=content_hash,json=contentHash,proto3" json:"content_hash,omitempty"`
+	TaskVersion   int64                  `protobuf:"varint,3,opt,name=task_version,json=taskVersion,proto3" json:"task_version,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RunOutputReceipt) Reset() {
+	*x = RunOutputReceipt{}
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[40]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RunOutputReceipt) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RunOutputReceipt) ProtoMessage() {}
+
+func (x *RunOutputReceipt) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[40]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RunOutputReceipt.ProtoReflect.Descriptor instead.
+func (*RunOutputReceipt) Descriptor() ([]byte, []int) {
+	return file_agent_v1_agent_execution_proto_rawDescGZIP(), []int{40}
+}
+
+func (x *RunOutputReceipt) GetOutputKey() string {
+	if x != nil {
+		return x.OutputKey
+	}
+	return ""
+}
+
+func (x *RunOutputReceipt) GetContentHash() string {
+	if x != nil {
+		return x.ContentHash
+	}
+	return ""
+}
+
+func (x *RunOutputReceipt) GetTaskVersion() int64 {
+	if x != nil {
+		return x.TaskVersion
+	}
+	return 0
+}
+
+type SubmitRunOutputResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Receipt       *RunOutputReceipt      `protobuf:"bytes,1,opt,name=receipt,proto3" json:"receipt,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SubmitRunOutputResponse) Reset() {
+	*x = SubmitRunOutputResponse{}
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[41]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SubmitRunOutputResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SubmitRunOutputResponse) ProtoMessage() {}
+
+func (x *SubmitRunOutputResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[41]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SubmitRunOutputResponse.ProtoReflect.Descriptor instead.
+func (*SubmitRunOutputResponse) Descriptor() ([]byte, []int) {
+	return file_agent_v1_agent_execution_proto_rawDescGZIP(), []int{41}
+}
+
+func (x *SubmitRunOutputResponse) GetReceipt() *RunOutputReceipt {
 	if x != nil {
 		return x.Receipt
 	}
@@ -1784,7 +3326,7 @@ type CompleteRunRequest struct {
 
 func (x *CompleteRunRequest) Reset() {
 	*x = CompleteRunRequest{}
-	mi := &file_agent_v1_agent_execution_proto_msgTypes[28]
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1796,7 +3338,7 @@ func (x *CompleteRunRequest) String() string {
 func (*CompleteRunRequest) ProtoMessage() {}
 
 func (x *CompleteRunRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_execution_proto_msgTypes[28]
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1809,7 +3351,7 @@ func (x *CompleteRunRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CompleteRunRequest.ProtoReflect.Descriptor instead.
 func (*CompleteRunRequest) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_execution_proto_rawDescGZIP(), []int{28}
+	return file_agent_v1_agent_execution_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *CompleteRunRequest) GetLease() *LeaseContext {
@@ -1842,7 +3384,7 @@ type CompleteRunResponse struct {
 
 func (x *CompleteRunResponse) Reset() {
 	*x = CompleteRunResponse{}
-	mi := &file_agent_v1_agent_execution_proto_msgTypes[29]
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1854,7 +3396,7 @@ func (x *CompleteRunResponse) String() string {
 func (*CompleteRunResponse) ProtoMessage() {}
 
 func (x *CompleteRunResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_execution_proto_msgTypes[29]
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1867,7 +3409,7 @@ func (x *CompleteRunResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CompleteRunResponse.ProtoReflect.Descriptor instead.
 func (*CompleteRunResponse) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_execution_proto_rawDescGZIP(), []int{29}
+	return file_agent_v1_agent_execution_proto_rawDescGZIP(), []int{43}
 }
 
 func (x *CompleteRunResponse) GetProjection() *RunProjection {
@@ -1889,7 +3431,7 @@ type FailRunRequest struct {
 
 func (x *FailRunRequest) Reset() {
 	*x = FailRunRequest{}
-	mi := &file_agent_v1_agent_execution_proto_msgTypes[30]
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1901,7 +3443,7 @@ func (x *FailRunRequest) String() string {
 func (*FailRunRequest) ProtoMessage() {}
 
 func (x *FailRunRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_execution_proto_msgTypes[30]
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1914,7 +3456,7 @@ func (x *FailRunRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FailRunRequest.ProtoReflect.Descriptor instead.
 func (*FailRunRequest) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_execution_proto_rawDescGZIP(), []int{30}
+	return file_agent_v1_agent_execution_proto_rawDescGZIP(), []int{44}
 }
 
 func (x *FailRunRequest) GetLease() *LeaseContext {
@@ -1954,7 +3496,7 @@ type FailRunResponse struct {
 
 func (x *FailRunResponse) Reset() {
 	*x = FailRunResponse{}
-	mi := &file_agent_v1_agent_execution_proto_msgTypes[31]
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[45]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1966,7 +3508,7 @@ func (x *FailRunResponse) String() string {
 func (*FailRunResponse) ProtoMessage() {}
 
 func (x *FailRunResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_execution_proto_msgTypes[31]
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[45]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1979,7 +3521,7 @@ func (x *FailRunResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FailRunResponse.ProtoReflect.Descriptor instead.
 func (*FailRunResponse) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_execution_proto_rawDescGZIP(), []int{31}
+	return file_agent_v1_agent_execution_proto_rawDescGZIP(), []int{45}
 }
 
 func (x *FailRunResponse) GetProjection() *RunProjection {
@@ -2000,7 +3542,7 @@ type RunProjection struct {
 
 func (x *RunProjection) Reset() {
 	*x = RunProjection{}
-	mi := &file_agent_v1_agent_execution_proto_msgTypes[32]
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[46]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2012,7 +3554,7 @@ func (x *RunProjection) String() string {
 func (*RunProjection) ProtoMessage() {}
 
 func (x *RunProjection) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_execution_proto_msgTypes[32]
+	mi := &file_agent_v1_agent_execution_proto_msgTypes[46]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2025,7 +3567,7 @@ func (x *RunProjection) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunProjection.ProtoReflect.Descriptor instead.
 func (*RunProjection) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_execution_proto_rawDescGZIP(), []int{32}
+	return file_agent_v1_agent_execution_proto_rawDescGZIP(), []int{46}
 }
 
 func (x *RunProjection) GetRunId() string {
@@ -2076,7 +3618,7 @@ const file_agent_v1_agent_execution_proto_rawDesc = "" +
 	"\x14GetRunContextRequest\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12,\n" +
 	"\x05lease\x18\x02 \x01(\v2\x16.agent.v1.LeaseContextR\x05lease\x12)\n" +
-	"\x04meta\x18\x03 \x01(\v2\x15.agent.v1.RequestMetaR\x04meta\"\xa5\x05\n" +
+	"\x04meta\x18\x03 \x01(\v2\x15.agent.v1.RequestMetaR\x04meta\"\xb4\f\n" +
 	"\rAgentRunInput\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x1b\n" +
 	"\ttenant_id\x18\x02 \x01(\tR\btenantId\x12\x19\n" +
@@ -2095,7 +3637,121 @@ const file_agent_v1_agent_execution_proto_rawDesc = "" +
 	"\x0fresume_evidence\x18\f \x03(\v2\x16.agent.v1.EvidenceItemR\x0eresumeEvidence\x12@\n" +
 	"\x10resume_artifacts\x18\r \x03(\v2\x15.agent.v1.RunArtifactR\x0fresumeArtifacts\x12>\n" +
 	"\x0erevision_scope\x18\x0e \x01(\v2\x17.agent.v1.RevisionScopeR\rrevisionScope\x12B\n" +
-	"\fresume_draft\x18\x0f \x01(\v2\x1f.agent.v1.SubmittedDraftReceiptR\vresumeDraft\"F\n" +
+	"\fresume_draft\x18\x0f \x01(\v2\x1f.agent.v1.SubmittedDraftReceiptR\vresumeDraft\x12>\n" +
+	"\n" +
+	"base_draft\x18\x10 \x01(\v2\x1f.agent.v1.SubmittedDraftReceiptR\tbaseDraft\x12H\n" +
+	"\x0fsubmitted_draft\x18\x11 \x01(\v2\x1f.agent.v1.SubmittedDraftReceiptR\x0esubmittedDraft\x12C\n" +
+	"\x0eresume_summary\x18\x12 \x01(\v2\x1c.agent.v1.ResumeStateSummaryR\rresumeSummary\x128\n" +
+	"\x18execution_ledger_version\x18\x13 \x01(\tR\x16executionLedgerVersion\x122\n" +
+	"\n" +
+	"run_budget\x18\x14 \x01(\v2\x13.agent.v1.RunBudgetR\trunBudget\x12A\n" +
+	"\x0fconsumed_budget\x18\x15 \x01(\v2\x18.agent.v1.ConsumedBudgetR\x0econsumedBudget\x12?\n" +
+	"\x0eledger_entries\x18\x16 \x03(\v2\x18.agent.v1.RunLedgerEntryR\rledgerEntries\x12W\n" +
+	"\x1aallowed_source_authorities\x18\x17 \x03(\v2\x19.agent.v1.SourceAuthorityR\x18allowedSourceAuthorities\x125\n" +
+	"\vrun_purpose\x18\x18 \x01(\x0e2\x14.agent.v1.RunPurposeR\n" +
+	"runPurpose\x122\n" +
+	"\n" +
+	"unit_scope\x18\x19 \x01(\v2\x13.agent.v1.UnitScopeR\tunitScope\x12'\n" +
+	"\x0fevaluation_mode\x18\x1a \x01(\tR\x0eevaluationMode\x12D\n" +
+	"\x1eauthoritative_workflow_version\x18\x1b \x01(\tR\x1cauthoritativeWorkflowVersion\x126\n" +
+	"\x17shadow_workflow_version\x18\x1c \x01(\tR\x15shadowWorkflowVersion\x128\n" +
+	"\x18candidate_policy_version\x18\x1d \x01(\tR\x16candidatePolicyVersion\x12'\n" +
+	"\x0fassignment_hash\x18\x1e \x01(\tR\x0eassignmentHash\"\xd9\x01\n" +
+	"\x14ConfirmedUnitContext\x12\x19\n" +
+	"\bunit_key\x18\x01 \x01(\tR\aunitKey\x12!\n" +
+	"\funit_version\x18\x02 \x01(\x03R\vunitVersion\x12!\n" +
+	"\fcontent_hash\x18\x03 \x01(\tR\vcontentHash\x12\x18\n" +
+	"\asummary\x18\x04 \x01(\tR\asummary\x12*\n" +
+	"\x11working_draft_ref\x18\x05 \x01(\tR\x0fworkingDraftRef\x12\x1a\n" +
+	"\bmarkdown\x18\x06 \x01(\tR\bmarkdown\"\x84\x06\n" +
+	"\tUnitScope\x12%\n" +
+	"\x0eschema_version\x18\x01 \x01(\tR\rschemaVersion\x12\x1d\n" +
+	"\n" +
+	"outline_id\x18\x02 \x01(\tR\toutlineId\x12'\n" +
+	"\x0foutline_version\x18\x03 \x01(\x03R\x0eoutlineVersion\x12!\n" +
+	"\foutline_hash\x18\x04 \x01(\tR\voutlineHash\x12(\n" +
+	"\x10current_unit_key\x18\x05 \x01(\tR\x0ecurrentUnitKey\x12,\n" +
+	"\x12current_unit_title\x18\x06 \x01(\tR\x10currentUnitTitle\x120\n" +
+	"\x14current_unit_ordinal\x18\a \x01(\x05R\x12currentUnitOrdinal\x12*\n" +
+	"\x11section_node_keys\x18\b \x03(\tR\x0fsectionNodeKeys\x120\n" +
+	"\x14dependency_unit_keys\x18\t \x03(\tR\x12dependencyUnitKeys\x12K\n" +
+	"\x11confirmed_context\x18\n" +
+	" \x03(\v2\x1e.agent.v1.ConfirmedUnitContextR\x10confirmedContext\x12,\n" +
+	"\x12reopened_unit_keys\x18\v \x03(\tR\x10reopenedUnitKeys\x12.\n" +
+	"\x13immutable_unit_keys\x18\f \x03(\tR\x11immutableUnitKeys\x122\n" +
+	"\x15requirement_brief_ref\x18\r \x01(\tR\x13requirementBriefRef\x124\n" +
+	"\x16requirement_brief_hash\x18\x0e \x01(\tR\x14requirementBriefHash\x12$\n" +
+	"\x0ebase_unit_hash\x18\x0f \x01(\tR\fbaseUnitHash\x12#\n" +
+	"\ruser_feedback\x18\x10 \x01(\tR\fuserFeedback\x12\x1d\n" +
+	"\n" +
+	"scope_hash\x18\x11 \x01(\tR\tscopeHash\"\xc1\x01\n" +
+	"\x0fSourceAuthority\x12\x1f\n" +
+	"\vsource_kind\x18\x01 \x01(\tR\n" +
+	"sourceKind\x12\x1d\n" +
+	"\n" +
+	"binding_id\x18\x02 \x01(\tR\tbindingId\x12\x1b\n" +
+	"\tsource_id\x18\x03 \x01(\tR\bsourceId\x12%\n" +
+	"\x0esource_version\x18\x04 \x01(\tR\rsourceVersion\x12*\n" +
+	"\x11access_scope_hash\x18\x05 \x01(\tR\x0faccessScopeHash\"\xfc\x02\n" +
+	"\tRunBudget\x12,\n" +
+	"\x12max_model_attempts\x18\x01 \x01(\x03R\x10maxModelAttempts\x12$\n" +
+	"\x0emax_tool_calls\x18\x02 \x01(\x03R\fmaxToolCalls\x12%\n" +
+	"\x0emax_iterations\x18\x03 \x01(\x03R\rmaxIterations\x12\x1f\n" +
+	"\vmax_replans\x18\x04 \x01(\x03R\n" +
+	"maxReplans\x12'\n" +
+	"\x0fmax_supplements\x18\x05 \x01(\x03R\x0emaxSupplements\x12.\n" +
+	"\x13max_quality_repairs\x18\x06 \x01(\x03R\x11maxQualityRepairs\x12(\n" +
+	"\x10max_input_tokens\x18\a \x01(\x03R\x0emaxInputTokens\x12*\n" +
+	"\x11max_output_tokens\x18\b \x01(\x03R\x0fmaxOutputTokens\x12$\n" +
+	"\x0emax_elapsed_ms\x18\t \x01(\x03R\fmaxElapsedMs\"\xbf\x02\n" +
+	"\vBudgetDelta\x12%\n" +
+	"\x0emodel_attempts\x18\x01 \x01(\x03R\rmodelAttempts\x12\x1d\n" +
+	"\n" +
+	"tool_calls\x18\x02 \x01(\x03R\ttoolCalls\x12\x1e\n" +
+	"\n" +
+	"iterations\x18\x03 \x01(\x03R\n" +
+	"iterations\x12\x18\n" +
+	"\areplans\x18\x04 \x01(\x03R\areplans\x12 \n" +
+	"\vsupplements\x18\x05 \x01(\x03R\vsupplements\x12'\n" +
+	"\x0fquality_repairs\x18\x06 \x01(\x03R\x0equalityRepairs\x12!\n" +
+	"\finput_tokens\x18\a \x01(\x03R\vinputTokens\x12#\n" +
+	"\routput_tokens\x18\b \x01(\x03R\foutputTokens\x12\x1d\n" +
+	"\n" +
+	"elapsed_ms\x18\t \x01(\x03R\telapsedMs\"\xc2\x02\n" +
+	"\x0eConsumedBudget\x12%\n" +
+	"\x0emodel_attempts\x18\x01 \x01(\x03R\rmodelAttempts\x12\x1d\n" +
+	"\n" +
+	"tool_calls\x18\x02 \x01(\x03R\ttoolCalls\x12\x1e\n" +
+	"\n" +
+	"iterations\x18\x03 \x01(\x03R\n" +
+	"iterations\x12\x18\n" +
+	"\areplans\x18\x04 \x01(\x03R\areplans\x12 \n" +
+	"\vsupplements\x18\x05 \x01(\x03R\vsupplements\x12'\n" +
+	"\x0fquality_repairs\x18\x06 \x01(\x03R\x0equalityRepairs\x12!\n" +
+	"\finput_tokens\x18\a \x01(\x03R\vinputTokens\x12#\n" +
+	"\routput_tokens\x18\b \x01(\x03R\foutputTokens\x12\x1d\n" +
+	"\n" +
+	"elapsed_ms\x18\t \x01(\x03R\telapsedMs\"\x86\x04\n" +
+	"\x0eRunLedgerEntry\x12\x19\n" +
+	"\bentry_id\x18\x01 \x01(\tR\aentryId\x12#\n" +
+	"\roperation_key\x18\x02 \x01(\tR\foperationKey\x12\x1d\n" +
+	"\n" +
+	"entry_kind\x18\x03 \x01(\tR\tentryKind\x12\x1c\n" +
+	"\toperation\x18\x04 \x01(\tR\toperation\x12!\n" +
+	"\frequest_hash\x18\x05 \x01(\tR\vrequestHash\x12\x16\n" +
+	"\x06status\x18\x06 \x01(\tR\x06status\x127\n" +
+	"\vreservation\x18\a \x01(\v2\x15.agent.v1.BudgetDeltaR\vreservation\x127\n" +
+	"\vconsumption\x18\b \x01(\v2\x15.agent.v1.BudgetDeltaR\vconsumption\x12.\n" +
+	"\x13output_artifact_key\x18\t \x01(\tR\x11outputArtifactKey\x120\n" +
+	"\x14output_artifact_hash\x18\n" +
+	" \x01(\tR\x12outputArtifactHash\x12#\n" +
+	"\revidence_refs\x18\v \x03(\tR\fevidenceRefs\x12%\n" +
+	"\x0eerror_category\x18\f \x01(\tR\rerrorCategory\x12\x1c\n" +
+	"\tretryable\x18\r \x01(\bR\tretryable\"_\n" +
+	"\x0eRunLedgerEvent\x12\x1d\n" +
+	"\n" +
+	"event_type\x18\x01 \x01(\tR\teventType\x12.\n" +
+	"\x05entry\x18\x02 \x01(\v2\x18.agent.v1.RunLedgerEntryR\x05entry\"F\n" +
 	"\x15GetRunContextResponse\x12-\n" +
 	"\x05input\x18\x01 \x01(\v2\x17.agent.v1.AgentRunInputR\x05input\"k\n" +
 	"\x10HeartbeatRequest\x12,\n" +
@@ -2125,14 +3781,22 @@ const file_agent_v1_agent_execution_proto_rawDesc = "" +
 	"\x15AppendEvidenceRequest\x12,\n" +
 	"\x05lease\x18\x01 \x01(\v2\x16.agent.v1.LeaseContextR\x05lease\x12,\n" +
 	"\x05items\x18\x02 \x03(\v2\x16.agent.v1.EvidenceItemR\x05items\x12)\n" +
-	"\x04meta\x18\x03 \x01(\v2\x15.agent.v1.RequestMetaR\x04meta\"\xa3\x01\n" +
+	"\x04meta\x18\x03 \x01(\v2\x15.agent.v1.RequestMetaR\x04meta\"\xd9\x02\n" +
 	"\fEvidenceItem\x12\x1f\n" +
 	"\vsource_type\x18\x01 \x01(\tR\n" +
 	"sourceType\x12\x1b\n" +
 	"\tsource_id\x18\x02 \x01(\tR\bsourceId\x12\x18\n" +
 	"\alocator\x18\x03 \x01(\tR\alocator\x12!\n" +
 	"\fexcerpt_hash\x18\x04 \x01(\tR\vexcerptHash\x12\x18\n" +
-	"\aexcerpt\x18\x05 \x01(\tR\aexcerpt\"8\n" +
+	"\aexcerpt\x18\x05 \x01(\tR\aexcerpt\x12\x1f\n" +
+	"\vsource_kind\x18\x06 \x01(\tR\n" +
+	"sourceKind\x12\x1d\n" +
+	"\n" +
+	"binding_id\x18\a \x01(\tR\tbindingId\x12%\n" +
+	"\x0esource_version\x18\b \x01(\tR\rsourceVersion\x12*\n" +
+	"\x11access_scope_hash\x18\t \x01(\tR\x0faccessScopeHash\x12!\n" +
+	"\foutcome_kind\x18\n" +
+	" \x01(\tR\voutcomeKind\"8\n" +
 	"\x0fEvidenceReceipt\x12%\n" +
 	"\x0eaccepted_count\x18\x01 \x01(\x03R\racceptedCount\"M\n" +
 	"\x16AppendEvidenceResponse\x123\n" +
@@ -2156,7 +3820,22 @@ const file_agent_v1_agent_execution_proto_rawDesc = "" +
 	"\tdraft_key\x18\x01 \x01(\tR\bdraftKey\x12!\n" +
 	"\fcontent_hash\x18\x02 \x01(\tR\vcontentHash\x12!\n" +
 	"\ftask_version\x18\x03 \x01(\x03R\vtaskVersion\x12\x18\n" +
-	"\acontent\x18\x04 \x01(\fR\acontent\"\xa4\x01\n" +
+	"\acontent\x18\x04 \x01(\fR\acontent\"\xc3\x01\n" +
+	"\x13RunArtifactIdentity\x12!\n" +
+	"\fartifact_key\x18\x01 \x01(\tR\vartifactKey\x12#\n" +
+	"\rartifact_type\x18\x02 \x01(\tR\fartifactType\x12\x1e\n" +
+	"\n" +
+	"generation\x18\x03 \x01(\x03R\n" +
+	"generation\x12!\n" +
+	"\frequest_hash\x18\x04 \x01(\tR\vrequestHash\x12!\n" +
+	"\fcontent_hash\x18\x05 \x01(\tR\vcontentHash\"\xbd\x02\n" +
+	"\x12ResumeStateSummary\x126\n" +
+	"\x17checkpoint_content_hash\x18\x01 \x01(\tR\x15checkpointContentHash\x12?\n" +
+	"\x1cterminal_model_attempt_count\x18\x02 \x01(\x03R\x19terminalModelAttemptCount\x12%\n" +
+	"\x0eevidence_count\x18\x03 \x01(\x03R\revidenceCount\x12#\n" +
+	"\revidence_refs\x18\x04 \x03(\tR\fevidenceRefs\x12%\n" +
+	"\x0eartifact_count\x18\x05 \x01(\x03R\rartifactCount\x12;\n" +
+	"\tartifacts\x18\x06 \x03(\v2\x1d.agent.v1.RunArtifactIdentityR\tartifacts\"\xa4\x01\n" +
 	"\x16SaveRunArtifactRequest\x12,\n" +
 	"\x05lease\x18\x01 \x01(\v2\x16.agent.v1.LeaseContextR\x05lease\x121\n" +
 	"\bartifact\x18\x02 \x01(\v2\x15.agent.v1.RunArtifactR\bartifact\x12)\n" +
@@ -2188,7 +3867,31 @@ const file_agent_v1_agent_execution_proto_rawDesc = "" +
 	"\fDraftReceipt\x12!\n" +
 	"\ftask_version\x18\x01 \x01(\x03R\vtaskVersion\"G\n" +
 	"\x13SubmitDraftResponse\x120\n" +
-	"\areceipt\x18\x01 \x01(\v2\x16.agent.v1.DraftReceiptR\areceipt\"\x8e\x01\n" +
+	"\areceipt\x18\x01 \x01(\v2\x16.agent.v1.DraftReceiptR\areceipt\"\xd2\x02\n" +
+	"\tRunOutput\x12%\n" +
+	"\x0eschema_version\x18\x01 \x01(\tR\rschemaVersion\x12\x1d\n" +
+	"\n" +
+	"output_key\x18\x02 \x01(\tR\toutputKey\x128\n" +
+	"\voutput_kind\x18\x03 \x01(\x0e2\x17.agent.v1.RunOutputKindR\n" +
+	"outputKind\x125\n" +
+	"\vrun_purpose\x18\x04 \x01(\x0e2\x14.agent.v1.RunPurposeR\n" +
+	"runPurpose\x12\x1d\n" +
+	"\n" +
+	"scope_hash\x18\x05 \x01(\tR\tscopeHash\x122\n" +
+	"\x15expected_task_version\x18\x06 \x01(\x03R\x13expectedTaskVersion\x12!\n" +
+	"\fcontent_hash\x18\a \x01(\tR\vcontentHash\x12\x18\n" +
+	"\apayload\x18\b \x01(\fR\apayload\"\x9e\x01\n" +
+	"\x16SubmitRunOutputRequest\x12,\n" +
+	"\x05lease\x18\x01 \x01(\v2\x16.agent.v1.LeaseContextR\x05lease\x12+\n" +
+	"\x06output\x18\x02 \x01(\v2\x13.agent.v1.RunOutputR\x06output\x12)\n" +
+	"\x04meta\x18\x03 \x01(\v2\x15.agent.v1.RequestMetaR\x04meta\"w\n" +
+	"\x10RunOutputReceipt\x12\x1d\n" +
+	"\n" +
+	"output_key\x18\x01 \x01(\tR\toutputKey\x12!\n" +
+	"\fcontent_hash\x18\x02 \x01(\tR\vcontentHash\x12!\n" +
+	"\ftask_version\x18\x03 \x01(\x03R\vtaskVersion\"O\n" +
+	"\x17SubmitRunOutputResponse\x124\n" +
+	"\areceipt\x18\x01 \x01(\v2\x1a.agent.v1.RunOutputReceiptR\areceipt\"\x8e\x01\n" +
 	"\x12CompleteRunRequest\x12,\n" +
 	"\x05lease\x18\x01 \x01(\v2\x16.agent.v1.LeaseContextR\x05lease\x12\x1f\n" +
 	"\vresult_type\x18\x02 \x01(\tR\n" +
@@ -2210,7 +3913,20 @@ const file_agent_v1_agent_execution_proto_rawDesc = "" +
 	"\rRunProjection\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x16\n" +
 	"\x06status\x18\x02 \x01(\tR\x06status\x12%\n" +
-	"\x0eevent_sequence\x18\x03 \x01(\x03R\reventSequence2\xb3\x06\n" +
+	"\x0eevent_sequence\x18\x03 \x01(\x03R\reventSequence*\xa0\x01\n" +
+	"\n" +
+	"RunPurpose\x12\x1b\n" +
+	"\x17RUN_PURPOSE_UNSPECIFIED\x10\x00\x12\x1c\n" +
+	"\x18RUN_PURPOSE_PLAN_OUTLINE\x10\x01\x12\x1d\n" +
+	"\x19RUN_PURPOSE_GENERATE_UNIT\x10\x02\x12\x1b\n" +
+	"\x17RUN_PURPOSE_REVISE_UNIT\x10\x03\x12\x1b\n" +
+	"\x17RUN_PURPOSE_FULL_REVIEW\x10\x04*\xc3\x01\n" +
+	"\rRunOutputKind\x12\x1f\n" +
+	"\x1bRUN_OUTPUT_KIND_UNSPECIFIED\x10\x00\x12%\n" +
+	"!RUN_OUTPUT_KIND_OUTLINE_CANDIDATE\x10\x01\x12\"\n" +
+	"\x1eRUN_OUTPUT_KIND_UNIT_CANDIDATE\x10\x02\x12\x1e\n" +
+	"\x1aRUN_OUTPUT_KIND_UNIT_PATCH\x10\x03\x12&\n" +
+	"\"RUN_OUTPUT_KIND_FULL_REVIEW_REPORT\x10\x042\x8b\a\n" +
 	"\x15AgentExecutionService\x12G\n" +
 	"\n" +
 	"AcquireRun\x12\x1b.agent.v1.AcquireRunRequest\x1a\x1c.agent.v1.AcquireRunResponse\x12P\n" +
@@ -2220,7 +3936,8 @@ const file_agent_v1_agent_execution_proto_rawDesc = "" +
 	"\x0eAppendEvidence\x12\x1f.agent.v1.AppendEvidenceRequest\x1a .agent.v1.AppendEvidenceResponse\x12V\n" +
 	"\x0fSaveRunArtifact\x12 .agent.v1.SaveRunArtifactRequest\x1a!.agent.v1.SaveRunArtifactResponse\x12S\n" +
 	"\x0eSaveCheckpoint\x12\x1f.agent.v1.SaveCheckpointRequest\x1a .agent.v1.SaveCheckpointResponse\x12J\n" +
-	"\vSubmitDraft\x12\x1c.agent.v1.SubmitDraftRequest\x1a\x1d.agent.v1.SubmitDraftResponse\x12J\n" +
+	"\vSubmitDraft\x12\x1c.agent.v1.SubmitDraftRequest\x1a\x1d.agent.v1.SubmitDraftResponse\x12V\n" +
+	"\x0fSubmitRunOutput\x12 .agent.v1.SubmitRunOutputRequest\x1a!.agent.v1.SubmitRunOutputResponse\x12J\n" +
 	"\vCompleteRun\x12\x1c.agent.v1.CompleteRunRequest\x1a\x1d.agent.v1.CompleteRunResponse\x12>\n" +
 	"\aFailRun\x12\x18.agent.v1.FailRunRequest\x1a\x19.agent.v1.FailRunResponseBIZGgithub.com/dante26979-droid/prd-agent/contracts/gen/go/agent/v1;agentv1b\x06proto3"
 
@@ -2236,103 +3953,142 @@ func file_agent_v1_agent_execution_proto_rawDescGZIP() []byte {
 	return file_agent_v1_agent_execution_proto_rawDescData
 }
 
-var file_agent_v1_agent_execution_proto_msgTypes = make([]protoimpl.MessageInfo, 33)
+var file_agent_v1_agent_execution_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
+var file_agent_v1_agent_execution_proto_msgTypes = make([]protoimpl.MessageInfo, 47)
 var file_agent_v1_agent_execution_proto_goTypes = []any{
-	(*RequestMeta)(nil),                // 0: agent.v1.RequestMeta
-	(*AcquireRunRequest)(nil),          // 1: agent.v1.AcquireRunRequest
-	(*LeaseContext)(nil),               // 2: agent.v1.LeaseContext
-	(*AcquireRunResponse)(nil),         // 3: agent.v1.AcquireRunResponse
-	(*GetRunContextRequest)(nil),       // 4: agent.v1.GetRunContextRequest
-	(*AgentRunInput)(nil),              // 5: agent.v1.AgentRunInput
-	(*GetRunContextResponse)(nil),      // 6: agent.v1.GetRunContextResponse
-	(*HeartbeatRequest)(nil),           // 7: agent.v1.HeartbeatRequest
-	(*HeartbeatResponse)(nil),          // 8: agent.v1.HeartbeatResponse
-	(*RecordModelAttemptRequest)(nil),  // 9: agent.v1.RecordModelAttemptRequest
-	(*AttemptReceipt)(nil),             // 10: agent.v1.AttemptReceipt
-	(*RecordModelAttemptResponse)(nil), // 11: agent.v1.RecordModelAttemptResponse
-	(*AppendEvidenceRequest)(nil),      // 12: agent.v1.AppendEvidenceRequest
-	(*EvidenceItem)(nil),               // 13: agent.v1.EvidenceItem
-	(*EvidenceReceipt)(nil),            // 14: agent.v1.EvidenceReceipt
-	(*AppendEvidenceResponse)(nil),     // 15: agent.v1.AppendEvidenceResponse
-	(*RunArtifact)(nil),                // 16: agent.v1.RunArtifact
-	(*RevisionScope)(nil),              // 17: agent.v1.RevisionScope
-	(*SubmittedDraftReceipt)(nil),      // 18: agent.v1.SubmittedDraftReceipt
-	(*SaveRunArtifactRequest)(nil),     // 19: agent.v1.SaveRunArtifactRequest
-	(*RunArtifactReceipt)(nil),         // 20: agent.v1.RunArtifactReceipt
-	(*SaveRunArtifactResponse)(nil),    // 21: agent.v1.SaveRunArtifactResponse
-	(*SaveCheckpointRequest)(nil),      // 22: agent.v1.SaveCheckpointRequest
-	(*CheckpointReceipt)(nil),          // 23: agent.v1.CheckpointReceipt
-	(*SaveCheckpointResponse)(nil),     // 24: agent.v1.SaveCheckpointResponse
-	(*SubmitDraftRequest)(nil),         // 25: agent.v1.SubmitDraftRequest
-	(*DraftReceipt)(nil),               // 26: agent.v1.DraftReceipt
-	(*SubmitDraftResponse)(nil),        // 27: agent.v1.SubmitDraftResponse
-	(*CompleteRunRequest)(nil),         // 28: agent.v1.CompleteRunRequest
-	(*CompleteRunResponse)(nil),        // 29: agent.v1.CompleteRunResponse
-	(*FailRunRequest)(nil),             // 30: agent.v1.FailRunRequest
-	(*FailRunResponse)(nil),            // 31: agent.v1.FailRunResponse
-	(*RunProjection)(nil),              // 32: agent.v1.RunProjection
+	(RunPurpose)(0),                    // 0: agent.v1.RunPurpose
+	(RunOutputKind)(0),                 // 1: agent.v1.RunOutputKind
+	(*RequestMeta)(nil),                // 2: agent.v1.RequestMeta
+	(*AcquireRunRequest)(nil),          // 3: agent.v1.AcquireRunRequest
+	(*LeaseContext)(nil),               // 4: agent.v1.LeaseContext
+	(*AcquireRunResponse)(nil),         // 5: agent.v1.AcquireRunResponse
+	(*GetRunContextRequest)(nil),       // 6: agent.v1.GetRunContextRequest
+	(*AgentRunInput)(nil),              // 7: agent.v1.AgentRunInput
+	(*ConfirmedUnitContext)(nil),       // 8: agent.v1.ConfirmedUnitContext
+	(*UnitScope)(nil),                  // 9: agent.v1.UnitScope
+	(*SourceAuthority)(nil),            // 10: agent.v1.SourceAuthority
+	(*RunBudget)(nil),                  // 11: agent.v1.RunBudget
+	(*BudgetDelta)(nil),                // 12: agent.v1.BudgetDelta
+	(*ConsumedBudget)(nil),             // 13: agent.v1.ConsumedBudget
+	(*RunLedgerEntry)(nil),             // 14: agent.v1.RunLedgerEntry
+	(*RunLedgerEvent)(nil),             // 15: agent.v1.RunLedgerEvent
+	(*GetRunContextResponse)(nil),      // 16: agent.v1.GetRunContextResponse
+	(*HeartbeatRequest)(nil),           // 17: agent.v1.HeartbeatRequest
+	(*HeartbeatResponse)(nil),          // 18: agent.v1.HeartbeatResponse
+	(*RecordModelAttemptRequest)(nil),  // 19: agent.v1.RecordModelAttemptRequest
+	(*AttemptReceipt)(nil),             // 20: agent.v1.AttemptReceipt
+	(*RecordModelAttemptResponse)(nil), // 21: agent.v1.RecordModelAttemptResponse
+	(*AppendEvidenceRequest)(nil),      // 22: agent.v1.AppendEvidenceRequest
+	(*EvidenceItem)(nil),               // 23: agent.v1.EvidenceItem
+	(*EvidenceReceipt)(nil),            // 24: agent.v1.EvidenceReceipt
+	(*AppendEvidenceResponse)(nil),     // 25: agent.v1.AppendEvidenceResponse
+	(*RunArtifact)(nil),                // 26: agent.v1.RunArtifact
+	(*RevisionScope)(nil),              // 27: agent.v1.RevisionScope
+	(*SubmittedDraftReceipt)(nil),      // 28: agent.v1.SubmittedDraftReceipt
+	(*RunArtifactIdentity)(nil),        // 29: agent.v1.RunArtifactIdentity
+	(*ResumeStateSummary)(nil),         // 30: agent.v1.ResumeStateSummary
+	(*SaveRunArtifactRequest)(nil),     // 31: agent.v1.SaveRunArtifactRequest
+	(*RunArtifactReceipt)(nil),         // 32: agent.v1.RunArtifactReceipt
+	(*SaveRunArtifactResponse)(nil),    // 33: agent.v1.SaveRunArtifactResponse
+	(*SaveCheckpointRequest)(nil),      // 34: agent.v1.SaveCheckpointRequest
+	(*CheckpointReceipt)(nil),          // 35: agent.v1.CheckpointReceipt
+	(*SaveCheckpointResponse)(nil),     // 36: agent.v1.SaveCheckpointResponse
+	(*SubmitDraftRequest)(nil),         // 37: agent.v1.SubmitDraftRequest
+	(*DraftReceipt)(nil),               // 38: agent.v1.DraftReceipt
+	(*SubmitDraftResponse)(nil),        // 39: agent.v1.SubmitDraftResponse
+	(*RunOutput)(nil),                  // 40: agent.v1.RunOutput
+	(*SubmitRunOutputRequest)(nil),     // 41: agent.v1.SubmitRunOutputRequest
+	(*RunOutputReceipt)(nil),           // 42: agent.v1.RunOutputReceipt
+	(*SubmitRunOutputResponse)(nil),    // 43: agent.v1.SubmitRunOutputResponse
+	(*CompleteRunRequest)(nil),         // 44: agent.v1.CompleteRunRequest
+	(*CompleteRunResponse)(nil),        // 45: agent.v1.CompleteRunResponse
+	(*FailRunRequest)(nil),             // 46: agent.v1.FailRunRequest
+	(*FailRunResponse)(nil),            // 47: agent.v1.FailRunResponse
+	(*RunProjection)(nil),              // 48: agent.v1.RunProjection
 }
 var file_agent_v1_agent_execution_proto_depIdxs = []int32{
-	0,  // 0: agent.v1.AcquireRunRequest.meta:type_name -> agent.v1.RequestMeta
-	2,  // 1: agent.v1.AcquireRunResponse.lease:type_name -> agent.v1.LeaseContext
-	2,  // 2: agent.v1.GetRunContextRequest.lease:type_name -> agent.v1.LeaseContext
-	0,  // 3: agent.v1.GetRunContextRequest.meta:type_name -> agent.v1.RequestMeta
-	13, // 4: agent.v1.AgentRunInput.resume_evidence:type_name -> agent.v1.EvidenceItem
-	16, // 5: agent.v1.AgentRunInput.resume_artifacts:type_name -> agent.v1.RunArtifact
-	17, // 6: agent.v1.AgentRunInput.revision_scope:type_name -> agent.v1.RevisionScope
-	18, // 7: agent.v1.AgentRunInput.resume_draft:type_name -> agent.v1.SubmittedDraftReceipt
-	5,  // 8: agent.v1.GetRunContextResponse.input:type_name -> agent.v1.AgentRunInput
-	2,  // 9: agent.v1.HeartbeatRequest.lease:type_name -> agent.v1.LeaseContext
-	0,  // 10: agent.v1.HeartbeatRequest.meta:type_name -> agent.v1.RequestMeta
-	2,  // 11: agent.v1.HeartbeatResponse.lease:type_name -> agent.v1.LeaseContext
-	2,  // 12: agent.v1.RecordModelAttemptRequest.lease:type_name -> agent.v1.LeaseContext
-	0,  // 13: agent.v1.RecordModelAttemptRequest.meta:type_name -> agent.v1.RequestMeta
-	10, // 14: agent.v1.RecordModelAttemptResponse.receipt:type_name -> agent.v1.AttemptReceipt
-	2,  // 15: agent.v1.AppendEvidenceRequest.lease:type_name -> agent.v1.LeaseContext
-	13, // 16: agent.v1.AppendEvidenceRequest.items:type_name -> agent.v1.EvidenceItem
-	0,  // 17: agent.v1.AppendEvidenceRequest.meta:type_name -> agent.v1.RequestMeta
-	14, // 18: agent.v1.AppendEvidenceResponse.receipt:type_name -> agent.v1.EvidenceReceipt
-	2,  // 19: agent.v1.SaveRunArtifactRequest.lease:type_name -> agent.v1.LeaseContext
-	16, // 20: agent.v1.SaveRunArtifactRequest.artifact:type_name -> agent.v1.RunArtifact
-	0,  // 21: agent.v1.SaveRunArtifactRequest.meta:type_name -> agent.v1.RequestMeta
-	20, // 22: agent.v1.SaveRunArtifactResponse.receipt:type_name -> agent.v1.RunArtifactReceipt
-	2,  // 23: agent.v1.SaveCheckpointRequest.lease:type_name -> agent.v1.LeaseContext
-	0,  // 24: agent.v1.SaveCheckpointRequest.meta:type_name -> agent.v1.RequestMeta
-	23, // 25: agent.v1.SaveCheckpointResponse.receipt:type_name -> agent.v1.CheckpointReceipt
-	2,  // 26: agent.v1.SubmitDraftRequest.lease:type_name -> agent.v1.LeaseContext
-	0,  // 27: agent.v1.SubmitDraftRequest.meta:type_name -> agent.v1.RequestMeta
-	26, // 28: agent.v1.SubmitDraftResponse.receipt:type_name -> agent.v1.DraftReceipt
-	2,  // 29: agent.v1.CompleteRunRequest.lease:type_name -> agent.v1.LeaseContext
-	0,  // 30: agent.v1.CompleteRunRequest.meta:type_name -> agent.v1.RequestMeta
-	32, // 31: agent.v1.CompleteRunResponse.projection:type_name -> agent.v1.RunProjection
-	2,  // 32: agent.v1.FailRunRequest.lease:type_name -> agent.v1.LeaseContext
-	0,  // 33: agent.v1.FailRunRequest.meta:type_name -> agent.v1.RequestMeta
-	32, // 34: agent.v1.FailRunResponse.projection:type_name -> agent.v1.RunProjection
-	1,  // 35: agent.v1.AgentExecutionService.AcquireRun:input_type -> agent.v1.AcquireRunRequest
-	4,  // 36: agent.v1.AgentExecutionService.GetRunContext:input_type -> agent.v1.GetRunContextRequest
-	7,  // 37: agent.v1.AgentExecutionService.Heartbeat:input_type -> agent.v1.HeartbeatRequest
-	9,  // 38: agent.v1.AgentExecutionService.RecordModelAttempt:input_type -> agent.v1.RecordModelAttemptRequest
-	12, // 39: agent.v1.AgentExecutionService.AppendEvidence:input_type -> agent.v1.AppendEvidenceRequest
-	19, // 40: agent.v1.AgentExecutionService.SaveRunArtifact:input_type -> agent.v1.SaveRunArtifactRequest
-	22, // 41: agent.v1.AgentExecutionService.SaveCheckpoint:input_type -> agent.v1.SaveCheckpointRequest
-	25, // 42: agent.v1.AgentExecutionService.SubmitDraft:input_type -> agent.v1.SubmitDraftRequest
-	28, // 43: agent.v1.AgentExecutionService.CompleteRun:input_type -> agent.v1.CompleteRunRequest
-	30, // 44: agent.v1.AgentExecutionService.FailRun:input_type -> agent.v1.FailRunRequest
-	3,  // 45: agent.v1.AgentExecutionService.AcquireRun:output_type -> agent.v1.AcquireRunResponse
-	6,  // 46: agent.v1.AgentExecutionService.GetRunContext:output_type -> agent.v1.GetRunContextResponse
-	8,  // 47: agent.v1.AgentExecutionService.Heartbeat:output_type -> agent.v1.HeartbeatResponse
-	11, // 48: agent.v1.AgentExecutionService.RecordModelAttempt:output_type -> agent.v1.RecordModelAttemptResponse
-	15, // 49: agent.v1.AgentExecutionService.AppendEvidence:output_type -> agent.v1.AppendEvidenceResponse
-	21, // 50: agent.v1.AgentExecutionService.SaveRunArtifact:output_type -> agent.v1.SaveRunArtifactResponse
-	24, // 51: agent.v1.AgentExecutionService.SaveCheckpoint:output_type -> agent.v1.SaveCheckpointResponse
-	27, // 52: agent.v1.AgentExecutionService.SubmitDraft:output_type -> agent.v1.SubmitDraftResponse
-	29, // 53: agent.v1.AgentExecutionService.CompleteRun:output_type -> agent.v1.CompleteRunResponse
-	31, // 54: agent.v1.AgentExecutionService.FailRun:output_type -> agent.v1.FailRunResponse
-	45, // [45:55] is the sub-list for method output_type
-	35, // [35:45] is the sub-list for method input_type
-	35, // [35:35] is the sub-list for extension type_name
-	35, // [35:35] is the sub-list for extension extendee
-	0,  // [0:35] is the sub-list for field type_name
+	2,  // 0: agent.v1.AcquireRunRequest.meta:type_name -> agent.v1.RequestMeta
+	4,  // 1: agent.v1.AcquireRunResponse.lease:type_name -> agent.v1.LeaseContext
+	4,  // 2: agent.v1.GetRunContextRequest.lease:type_name -> agent.v1.LeaseContext
+	2,  // 3: agent.v1.GetRunContextRequest.meta:type_name -> agent.v1.RequestMeta
+	23, // 4: agent.v1.AgentRunInput.resume_evidence:type_name -> agent.v1.EvidenceItem
+	26, // 5: agent.v1.AgentRunInput.resume_artifacts:type_name -> agent.v1.RunArtifact
+	27, // 6: agent.v1.AgentRunInput.revision_scope:type_name -> agent.v1.RevisionScope
+	28, // 7: agent.v1.AgentRunInput.resume_draft:type_name -> agent.v1.SubmittedDraftReceipt
+	28, // 8: agent.v1.AgentRunInput.base_draft:type_name -> agent.v1.SubmittedDraftReceipt
+	28, // 9: agent.v1.AgentRunInput.submitted_draft:type_name -> agent.v1.SubmittedDraftReceipt
+	30, // 10: agent.v1.AgentRunInput.resume_summary:type_name -> agent.v1.ResumeStateSummary
+	11, // 11: agent.v1.AgentRunInput.run_budget:type_name -> agent.v1.RunBudget
+	13, // 12: agent.v1.AgentRunInput.consumed_budget:type_name -> agent.v1.ConsumedBudget
+	14, // 13: agent.v1.AgentRunInput.ledger_entries:type_name -> agent.v1.RunLedgerEntry
+	10, // 14: agent.v1.AgentRunInput.allowed_source_authorities:type_name -> agent.v1.SourceAuthority
+	0,  // 15: agent.v1.AgentRunInput.run_purpose:type_name -> agent.v1.RunPurpose
+	9,  // 16: agent.v1.AgentRunInput.unit_scope:type_name -> agent.v1.UnitScope
+	8,  // 17: agent.v1.UnitScope.confirmed_context:type_name -> agent.v1.ConfirmedUnitContext
+	12, // 18: agent.v1.RunLedgerEntry.reservation:type_name -> agent.v1.BudgetDelta
+	12, // 19: agent.v1.RunLedgerEntry.consumption:type_name -> agent.v1.BudgetDelta
+	14, // 20: agent.v1.RunLedgerEvent.entry:type_name -> agent.v1.RunLedgerEntry
+	7,  // 21: agent.v1.GetRunContextResponse.input:type_name -> agent.v1.AgentRunInput
+	4,  // 22: agent.v1.HeartbeatRequest.lease:type_name -> agent.v1.LeaseContext
+	2,  // 23: agent.v1.HeartbeatRequest.meta:type_name -> agent.v1.RequestMeta
+	4,  // 24: agent.v1.HeartbeatResponse.lease:type_name -> agent.v1.LeaseContext
+	4,  // 25: agent.v1.RecordModelAttemptRequest.lease:type_name -> agent.v1.LeaseContext
+	2,  // 26: agent.v1.RecordModelAttemptRequest.meta:type_name -> agent.v1.RequestMeta
+	20, // 27: agent.v1.RecordModelAttemptResponse.receipt:type_name -> agent.v1.AttemptReceipt
+	4,  // 28: agent.v1.AppendEvidenceRequest.lease:type_name -> agent.v1.LeaseContext
+	23, // 29: agent.v1.AppendEvidenceRequest.items:type_name -> agent.v1.EvidenceItem
+	2,  // 30: agent.v1.AppendEvidenceRequest.meta:type_name -> agent.v1.RequestMeta
+	24, // 31: agent.v1.AppendEvidenceResponse.receipt:type_name -> agent.v1.EvidenceReceipt
+	29, // 32: agent.v1.ResumeStateSummary.artifacts:type_name -> agent.v1.RunArtifactIdentity
+	4,  // 33: agent.v1.SaveRunArtifactRequest.lease:type_name -> agent.v1.LeaseContext
+	26, // 34: agent.v1.SaveRunArtifactRequest.artifact:type_name -> agent.v1.RunArtifact
+	2,  // 35: agent.v1.SaveRunArtifactRequest.meta:type_name -> agent.v1.RequestMeta
+	32, // 36: agent.v1.SaveRunArtifactResponse.receipt:type_name -> agent.v1.RunArtifactReceipt
+	4,  // 37: agent.v1.SaveCheckpointRequest.lease:type_name -> agent.v1.LeaseContext
+	2,  // 38: agent.v1.SaveCheckpointRequest.meta:type_name -> agent.v1.RequestMeta
+	35, // 39: agent.v1.SaveCheckpointResponse.receipt:type_name -> agent.v1.CheckpointReceipt
+	4,  // 40: agent.v1.SubmitDraftRequest.lease:type_name -> agent.v1.LeaseContext
+	2,  // 41: agent.v1.SubmitDraftRequest.meta:type_name -> agent.v1.RequestMeta
+	38, // 42: agent.v1.SubmitDraftResponse.receipt:type_name -> agent.v1.DraftReceipt
+	1,  // 43: agent.v1.RunOutput.output_kind:type_name -> agent.v1.RunOutputKind
+	0,  // 44: agent.v1.RunOutput.run_purpose:type_name -> agent.v1.RunPurpose
+	4,  // 45: agent.v1.SubmitRunOutputRequest.lease:type_name -> agent.v1.LeaseContext
+	40, // 46: agent.v1.SubmitRunOutputRequest.output:type_name -> agent.v1.RunOutput
+	2,  // 47: agent.v1.SubmitRunOutputRequest.meta:type_name -> agent.v1.RequestMeta
+	42, // 48: agent.v1.SubmitRunOutputResponse.receipt:type_name -> agent.v1.RunOutputReceipt
+	4,  // 49: agent.v1.CompleteRunRequest.lease:type_name -> agent.v1.LeaseContext
+	2,  // 50: agent.v1.CompleteRunRequest.meta:type_name -> agent.v1.RequestMeta
+	48, // 51: agent.v1.CompleteRunResponse.projection:type_name -> agent.v1.RunProjection
+	4,  // 52: agent.v1.FailRunRequest.lease:type_name -> agent.v1.LeaseContext
+	2,  // 53: agent.v1.FailRunRequest.meta:type_name -> agent.v1.RequestMeta
+	48, // 54: agent.v1.FailRunResponse.projection:type_name -> agent.v1.RunProjection
+	3,  // 55: agent.v1.AgentExecutionService.AcquireRun:input_type -> agent.v1.AcquireRunRequest
+	6,  // 56: agent.v1.AgentExecutionService.GetRunContext:input_type -> agent.v1.GetRunContextRequest
+	17, // 57: agent.v1.AgentExecutionService.Heartbeat:input_type -> agent.v1.HeartbeatRequest
+	19, // 58: agent.v1.AgentExecutionService.RecordModelAttempt:input_type -> agent.v1.RecordModelAttemptRequest
+	22, // 59: agent.v1.AgentExecutionService.AppendEvidence:input_type -> agent.v1.AppendEvidenceRequest
+	31, // 60: agent.v1.AgentExecutionService.SaveRunArtifact:input_type -> agent.v1.SaveRunArtifactRequest
+	34, // 61: agent.v1.AgentExecutionService.SaveCheckpoint:input_type -> agent.v1.SaveCheckpointRequest
+	37, // 62: agent.v1.AgentExecutionService.SubmitDraft:input_type -> agent.v1.SubmitDraftRequest
+	41, // 63: agent.v1.AgentExecutionService.SubmitRunOutput:input_type -> agent.v1.SubmitRunOutputRequest
+	44, // 64: agent.v1.AgentExecutionService.CompleteRun:input_type -> agent.v1.CompleteRunRequest
+	46, // 65: agent.v1.AgentExecutionService.FailRun:input_type -> agent.v1.FailRunRequest
+	5,  // 66: agent.v1.AgentExecutionService.AcquireRun:output_type -> agent.v1.AcquireRunResponse
+	16, // 67: agent.v1.AgentExecutionService.GetRunContext:output_type -> agent.v1.GetRunContextResponse
+	18, // 68: agent.v1.AgentExecutionService.Heartbeat:output_type -> agent.v1.HeartbeatResponse
+	21, // 69: agent.v1.AgentExecutionService.RecordModelAttempt:output_type -> agent.v1.RecordModelAttemptResponse
+	25, // 70: agent.v1.AgentExecutionService.AppendEvidence:output_type -> agent.v1.AppendEvidenceResponse
+	33, // 71: agent.v1.AgentExecutionService.SaveRunArtifact:output_type -> agent.v1.SaveRunArtifactResponse
+	36, // 72: agent.v1.AgentExecutionService.SaveCheckpoint:output_type -> agent.v1.SaveCheckpointResponse
+	39, // 73: agent.v1.AgentExecutionService.SubmitDraft:output_type -> agent.v1.SubmitDraftResponse
+	43, // 74: agent.v1.AgentExecutionService.SubmitRunOutput:output_type -> agent.v1.SubmitRunOutputResponse
+	45, // 75: agent.v1.AgentExecutionService.CompleteRun:output_type -> agent.v1.CompleteRunResponse
+	47, // 76: agent.v1.AgentExecutionService.FailRun:output_type -> agent.v1.FailRunResponse
+	66, // [66:77] is the sub-list for method output_type
+	55, // [55:66] is the sub-list for method input_type
+	55, // [55:55] is the sub-list for extension type_name
+	55, // [55:55] is the sub-list for extension extendee
+	0,  // [0:55] is the sub-list for field type_name
 }
 
 func init() { file_agent_v1_agent_execution_proto_init() }
@@ -2345,13 +4101,14 @@ func file_agent_v1_agent_execution_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agent_v1_agent_execution_proto_rawDesc), len(file_agent_v1_agent_execution_proto_rawDesc)),
-			NumEnums:      0,
-			NumMessages:   33,
+			NumEnums:      2,
+			NumMessages:   47,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
 		GoTypes:           file_agent_v1_agent_execution_proto_goTypes,
 		DependencyIndexes: file_agent_v1_agent_execution_proto_depIdxs,
+		EnumInfos:         file_agent_v1_agent_execution_proto_enumTypes,
 		MessageInfos:      file_agent_v1_agent_execution_proto_msgTypes,
 	}.Build()
 	File_agent_v1_agent_execution_proto = out.File

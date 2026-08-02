@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import hashlib
 import json
+from dataclasses import replace
 
 import pytest
 
@@ -9,10 +11,14 @@ from agent.cancellation import AgentCancelled, CancellationToken
 from agent.checkpoint import CheckpointCodec, CheckpointError
 from agent.context import Lease, RunContext
 from agent.graph import LangGraphAgentLoop
+from agent.graph.snapshot import LoopCheckpointStatus, LoopSnapshot
 from agent.investigation import InvestigationBudget
+from agent.investigation.models import ProposedAction
+from agent.investigation.policies import action_signature
 from agent.model import ModelResponse
 from agent.quality import DraftQualityPolicy
 from agent.runtime import BufferedRuntimeEventSink
+from agent.v1 import agent_execution_pb2 as proto
 
 
 class ScriptedModel:
@@ -54,7 +60,7 @@ def _context(*, checkpoint=b"", checkpoint_sequence=0, event_sink=None):
         owner_id="owner-1",
         task_id="task-1",
         task_message="为订单筛选生成 PRD",
-        workflow_version="agent-runtime.v2",
+        workflow_version="agent-runtime.v1",
         checkpoint=checkpoint,
         checkpoint_sequence=checkpoint_sequence,
         task_version=1,
@@ -145,6 +151,227 @@ def test_langgraph_loop_uses_observation_to_select_a_second_action():
     assert [item["status"] for item in snapshots] == stages
     assert snapshots[-1]["snapshot"]["candidate_markdown"] == draft["markdown"]
     assert snapshots[-1]["snapshot"]["status"] == "READY_TO_SUBMIT"
+
+
+def test_v4_langgraph_routes_model_and_capability_through_execution_ledger():
+    model = ScriptedModel(
+        {
+            "question": "订单筛选逻辑位于何处？",
+            "suggested_requiredness": "OPTIONAL",
+            "need_kind": "CODE_LOCATION_ONLY",
+            "source_types": ["CODE"],
+            "fallback": "未定位时标记为 Unknown",
+        },
+        _action("order route", "repository_structure"),
+        {"markdown": "# PRD\n\n基于仓库证据生成。"},
+    )
+    gateway = FakeRepositoryGateway(
+        {"order route": (_hit("api/orders.py", 10, "def order_route"),)}
+    )
+    sink = BufferedRuntimeEventSink()
+    context = replace(
+        _context(event_sink=sink),
+        workflow_version="agent-runtime.v4",
+        execution_ledger_version="run-ledger.v1",
+        run_budget=proto.RunBudget(
+            max_model_attempts=4,
+            max_tool_calls=2,
+            max_iterations=4,
+            max_replans=1,
+            max_supplements=1,
+            max_quality_repairs=1,
+            max_input_tokens=100_000,
+            max_output_tokens=20_000,
+            max_elapsed_ms=60_000,
+        ),
+        consumed_budget=proto.ConsumedBudget(),
+    )
+    loop = LangGraphAgentLoop(
+        model=model,
+        checkpoint_codec=CheckpointCodec(),
+        quality_policy=DraftQualityPolicy(),
+        capability_factory=lambda current: gateway,
+        budget=InvestigationBudget(max_iterations=3, max_tool_calls=3),
+    )
+
+    result = loop(context)
+
+    assert result.draft_patch
+    assert gateway.queries == ["order route"]
+    assert sink.model_attempts == []
+    assert len(sink.artifacts) == 6  # model/capability outcomes, Need Plan, Knowledge
+    assert sum(
+        item.artifact_type == "KNOWLEDGE_BUNDLE" for item in sink.artifacts
+    ) == 1
+    assert [event.event_type for event in sink.ledger_events] == [
+        "LEDGER_RESERVED",
+        "LEDGER_CALL_STARTED",
+        "LEDGER_FINISHED",  # Information Need planner
+        "LEDGER_FINISHED",  # local iteration transition
+        "LEDGER_RESERVED",
+        "LEDGER_CALL_STARTED",
+        "LEDGER_FINISHED",
+        "LEDGER_RESERVED",
+        "LEDGER_CALL_STARTED",
+        "LEDGER_FINISHED",
+        "LEDGER_RESERVED",
+        "LEDGER_CALL_STARTED",
+        "LEDGER_FINISHED",
+    ]
+    final_snapshot = CheckpointCodec().decode(sink.checkpoints[-1][1]).payload
+    assert final_snapshot["execution_ledger_version"] == "run-ledger.v1"
+    assert len(final_snapshot["terminal_operation_keys"]) == 5
+
+
+def test_v4_non_supporting_evidence_does_not_complete_coverage() -> None:
+    model = ScriptedModel(
+        {
+            "question": "订单路由位于何处？",
+            "suggested_requiredness": "OPTIONAL",
+            "need_kind": "CODE_LOCATION_ONLY",
+            "source_types": ["CODE"],
+            "fallback": "未定位时标记为 Unknown",
+        },
+        _action("order route", "repository_structure"),
+        {"markdown": "# PRD\n\n当前证据不能确认订单路由位置。"},
+    )
+    gateway = FakeRepositoryGateway(
+        {"order route": (_hit("api/orders.py", 10, "def calculate_order_total"),)}
+    )
+    sink = BufferedRuntimeEventSink()
+    context = replace(
+        _context(event_sink=sink),
+        workflow_version="agent-runtime.v4",
+        execution_ledger_version="run-ledger.v1",
+        run_budget=proto.RunBudget(
+            max_model_attempts=4,
+            max_tool_calls=2,
+            max_iterations=2,
+            max_replans=1,
+            max_supplements=1,
+            max_quality_repairs=1,
+            max_input_tokens=100_000,
+            max_output_tokens=20_000,
+            max_elapsed_ms=60_000,
+        ),
+        consumed_budget=proto.ConsumedBudget(),
+    )
+    result = LangGraphAgentLoop(
+        model=model,
+        checkpoint_codec=CheckpointCodec(),
+        quality_policy=DraftQualityPolicy(),
+        capability_factory=lambda _context: gateway,
+        budget=InvestigationBudget(max_iterations=1, max_tool_calls=2),
+    )(context)
+
+    draft = json.loads(result.draft_patch)
+    knowledge = [
+        artifact for artifact in sink.artifacts
+        if artifact.artifact_type == "KNOWLEDGE_BUNDLE"
+    ]
+
+    assert draft["coverage"] == {"repository_structure": "MISSING"}
+    assert len(knowledge) == 1
+    assert draft["stop_reason"] == "MAX_ITERATIONS_REACHED"
+
+
+def test_v4_action_validated_resume_executes_without_reselection() -> None:
+    action = ProposedAction(
+        tool_id="search_repository",
+        arguments={"query": "order route"},
+        purpose="定位订单路由",
+        target_coverage=("repository_structure",),
+    )
+    state = {
+        "schema_version": "agent-graph-state.v1",
+        "workflow_version": "agent-runtime.v4",
+        "execution_ledger_version": "run-ledger.v1",
+        "terminal_operation_keys": [],
+        "repository_binding_id": "binding-1",
+        "repository_revision": "a" * 40,
+        "run_id": "run-loop",
+        "task_id": "task-1",
+        "task_version": 1,
+        "status": "ACTION_VALIDATED",
+        "phase": "ACTION_VALIDATED",
+        "checkpoint_sequence": 1,
+        "iteration": 1,
+        "model_attempt_count": 2,
+        "tool_call_count": 0,
+        "token_usage": 0,
+        "replan_count": 0,
+        "no_progress_rounds": 0,
+        "supplement_count": 0,
+        "repair_count": 0,
+        "draft_generation": 0,
+        "coverage": {"repository_structure": "MISSING"},
+        "active_gap": "repository_structure",
+        "pending_action": action.as_dict(),
+        "action_signature": action_signature(action),
+        "completed_action_signatures": [],
+        "action_history": [],
+        "evidence_refs": [],
+        "observations": [],
+        "immutable_unit_keys": [],
+        "reopened_unit_keys": [],
+        "information_need_plan_id": "need-1",
+        "information_need_context_hash": "sha256:" + "1" * 64,
+        "effective_requiredness": "OPTIONAL",
+        "need_route": "EXECUTE_INVESTIGATION",
+        "need_route_reason_code": "OPTIONAL_EXECUTED_VALUE",
+    }
+    checkpoint = CheckpointCodec().encode(
+        workflow_version="agent-runtime.v4",
+        run_id="run-loop",
+        task_version=1,
+        sequence=1,
+        payload=LoopSnapshot(
+            LoopCheckpointStatus.ACTION_VALIDATED,
+            state,
+        ).as_payload(workflow_version="agent-runtime.v4"),
+    )
+    sink = BufferedRuntimeEventSink()
+    context = replace(
+        _context(
+            checkpoint=checkpoint,
+            checkpoint_sequence=1,
+            event_sink=sink,
+        ),
+        workflow_version="agent-runtime.v4",
+        execution_ledger_version="run-ledger.v1",
+        run_budget=proto.RunBudget(
+            max_model_attempts=4,
+            max_tool_calls=2,
+            max_iterations=3,
+            max_replans=1,
+            max_supplements=1,
+            max_quality_repairs=1,
+            max_input_tokens=100_000,
+            max_output_tokens=20_000,
+            max_elapsed_ms=60_000,
+        ),
+        consumed_budget=proto.ConsumedBudget(),
+        resume_summary=proto.ResumeStateSummary(
+            checkpoint_content_hash="sha256:"
+            + hashlib.sha256(checkpoint).hexdigest(),
+            terminal_model_attempt_count=2,
+        ),
+    )
+    gateway = FakeRepositoryGateway(
+        {"order route": (_hit("orders.py", 1, "def order_route"),)}
+    )
+    model = ScriptedModel({"markdown": "# PRD\n\n恢复后生成。"})
+
+    result = LangGraphAgentLoop(
+        model=model,
+        checkpoint_codec=CheckpointCodec(),
+        quality_policy=DraftQualityPolicy(),
+        capability_factory=lambda _context: gateway,
+    )(context)
+
+    assert result.draft_patch
+    assert gateway.queries == ["order route"]
+    assert len(model.calls) == 1
 
 
 def test_duplicate_empty_action_stops_without_second_physical_capability_call():
@@ -426,7 +653,7 @@ def test_observed_snapshot_status_prevents_capability_replay_after_restart():
 
 def test_unknown_snapshot_status_is_rejected_instead_of_guessing_resume_node():
     checkpoint = CheckpointCodec().encode(
-        workflow_version="agent-runtime.v2",
+        workflow_version="agent-runtime.v1",
         run_id="run-loop",
         task_version=1,
         sequence=1,

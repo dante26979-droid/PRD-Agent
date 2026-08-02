@@ -14,7 +14,7 @@ func (s *PostgresStore) ListQueuedRuns(ctx context.Context, limit int) ([]runcon
 		limit = 100
 	}
 	rows, err := s.pool.Query(ctx, `
-		SELECT run_id, task_id, tenant_id, owner_id, status, queue_slot_acquired,
+		SELECT run_id, task_id, tenant_id, owner_id, workflow_version, COALESCE(execution_ledger_version,''), status, queue_slot_acquired,
 		       attempt_count, COALESCE(lease_id,''), COALESCE(worker_id,''), fencing_token,
 		       COALESCE(lease_expires_at,'epoch'::timestamptz), created_at, updated_at
 		  FROM go_agent_runs
@@ -28,7 +28,7 @@ func (s *PostgresStore) ListQueuedRuns(ctx context.Context, limit int) ([]runcon
 	items := make([]runcontrol.AgentRun, 0, limit)
 	for rows.Next() {
 		var run runcontrol.AgentRun
-		if err := rows.Scan(&run.RunID, &run.TaskID, &run.TenantID, &run.OwnerID, &run.Status, &run.QueueSlotAcquired, &run.AttemptCount, &run.LeaseID, &run.WorkerID, &run.FencingToken, &run.LeaseExpiresAt, &run.CreatedAt, &run.UpdatedAt); err != nil {
+		if err := rows.Scan(&run.RunID, &run.TaskID, &run.TenantID, &run.OwnerID, &run.WorkflowVersion, &run.ExecutionLedgerVersion, &run.Status, &run.QueueSlotAcquired, &run.AttemptCount, &run.LeaseID, &run.WorkerID, &run.FencingToken, &run.LeaseExpiresAt, &run.CreatedAt, &run.UpdatedAt); err != nil {
 			return nil, err
 		}
 		items = append(items, run)
@@ -41,7 +41,7 @@ func (s *PostgresStore) ListStoppingRuns(ctx context.Context, limit int) ([]runc
 		limit = 100
 	}
 	rows, err := s.pool.Query(ctx, `
-		SELECT run_id, task_id, tenant_id, owner_id, status, queue_slot_acquired,
+		SELECT run_id, task_id, tenant_id, owner_id, workflow_version, COALESCE(execution_ledger_version,''), status, queue_slot_acquired,
 		       attempt_count, COALESCE(lease_id,''), COALESCE(worker_id,''), fencing_token,
 		       COALESCE(lease_expires_at,'epoch'::timestamptz), created_at, updated_at
 		  FROM go_agent_runs
@@ -55,7 +55,7 @@ func (s *PostgresStore) ListStoppingRuns(ctx context.Context, limit int) ([]runc
 	items := make([]runcontrol.AgentRun, 0, limit)
 	for rows.Next() {
 		var run runcontrol.AgentRun
-		if err := rows.Scan(&run.RunID, &run.TaskID, &run.TenantID, &run.OwnerID, &run.Status, &run.QueueSlotAcquired, &run.AttemptCount, &run.LeaseID, &run.WorkerID, &run.FencingToken, &run.LeaseExpiresAt, &run.CreatedAt, &run.UpdatedAt); err != nil {
+		if err := rows.Scan(&run.RunID, &run.TaskID, &run.TenantID, &run.OwnerID, &run.WorkflowVersion, &run.ExecutionLedgerVersion, &run.Status, &run.QueueSlotAcquired, &run.AttemptCount, &run.LeaseID, &run.WorkerID, &run.FencingToken, &run.LeaseExpiresAt, &run.CreatedAt, &run.UpdatedAt); err != nil {
 			return nil, err
 		}
 		items = append(items, run)

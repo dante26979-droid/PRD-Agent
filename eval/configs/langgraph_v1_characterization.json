@@ -1,0 +1,17 @@
+{
+  "config_id": "langgraph-runtime-v1-characterization",
+  "prompt_version": "agent-runtime.characterization.v1",
+  "model_id": "scripted-agent-model",
+  "dataset_version": "eval-v1",
+  "workflow_version": "agent-runtime.v1",
+  "fixture_path": "eval/fixtures/langgraph_v1_actions.json",
+  "trials_per_case": 1,
+  "timeout_seconds": 120,
+  "budget": {
+    "max_iterations": 5,
+    "max_tool_calls": 12,
+    "token_budget": 12000,
+    "max_replans": 1,
+    "no_progress_limit": 2
+  }
+}

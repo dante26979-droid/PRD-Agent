@@ -115,6 +115,37 @@ func TestInvalidDurationIsRejected(t *testing.T) {
 	}
 }
 
+func TestRolloutPolicyLoadsOnlyWhenVersionIsConfigured(t *testing.T) {
+	t.Setenv("PRD_AGENT_ROLLOUT_POLICY_VERSION", "rollout-policy.v1:test")
+	t.Setenv("PRD_AGENT_V4_CANARY_BASIS_POINTS", "2500")
+	t.Setenv("PRD_AGENT_V4_SHADOW", "true")
+	t.Setenv("PRD_AGENT_V4_INTERNAL_IDENTITIES", "tenant-a:owner-a,tenant-b:owner-b")
+	t.Setenv("PRD_AGENT_V4_EXPLICIT_TASK_IDS", "task-one")
+	t.Setenv("PRD_AGENT_V4_EMERGENCY_DENY_IDENTITIES", "tenant-c:owner-c")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy := cfg.AgentRolloutPolicy
+	if policy == nil || policy.PolicyVersion != "rollout-policy.v1:test" || policy.CanaryBasisPoints != 2500 || !policy.Shadow {
+		t.Fatalf("unexpected rollout policy: %+v", policy)
+	}
+	if !policy.InternalOwners["tenant-a:owner-a"] || !policy.ExplicitV4Tasks["task-one"] || !policy.EmergencyDeny["tenant-c:owner-c"] {
+		t.Fatalf("rollout identity sets were not loaded: %+v", policy)
+	}
+}
+
+func TestRolloutPolicyRejectsOutOfRangeCanary(t *testing.T) {
+	t.Setenv("PRD_AGENT_ROLLOUT_POLICY_VERSION", "rollout-policy.v1:test")
+	t.Setenv("PRD_AGENT_V4_CANARY_BASIS_POINTS", "10001")
+
+	_, err := Load()
+	if err == nil || !strings.Contains(err.Error(), "cannot exceed 10000") {
+		t.Fatalf("expected invalid canary error, got %v", err)
+	}
+}
+
 func TestProductionAgentEndpointRequiresServiceTokenFile(t *testing.T) {
 	setProductionBase(t)
 	t.Setenv("PRD_AGENT_GO_AGENT_RPC_WORKER_ENDPOINTS", "python-agent:9100")

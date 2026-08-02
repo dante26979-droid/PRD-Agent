@@ -5,6 +5,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -42,30 +43,56 @@ func (s *PostgresStore) CreatePublishPreview(ctx context.Context, tenantID, owne
 		return runcontrol.PublishPreviewResult{}, err
 	}
 	var taskVersion int
-	if err := tx.QueryRow(ctx, `SELECT version FROM go_control_tasks WHERE task_id=$1 AND tenant_id=$2 AND owner_id=$3`, taskID, tenantID, ownerID).Scan(&taskVersion); err != nil {
+	var taskStatus string
+	if err := tx.QueryRow(ctx, `SELECT version,status FROM go_control_tasks WHERE task_id=$1 AND tenant_id=$2 AND owner_id=$3`, taskID, tenantID, ownerID).Scan(&taskVersion, &taskStatus); err != nil {
 		return runcontrol.PublishPreviewResult{}, mapNotFound(err)
 	}
 	if taskVersion != expectedTaskVersion {
 		return runcontrol.PublishPreviewResult{}, runcontrol.ErrTaskVersionConflict
 	}
-	var draftID, contentHash string
+	var draftID, sourceVersionID any
+	var publishContent any
+	var contentHash string
 	var draftVersion int
-	if err := tx.QueryRow(ctx, `SELECT draft_id, patch_hash, task_version FROM go_working_draft_versions WHERE task_id=$1 ORDER BY task_version DESC, created_at DESC LIMIT 1`, taskID).Scan(&draftID, &contentHash, &draftVersion); err != nil {
-		return runcontrol.PublishPreviewResult{}, mapNotFound(err)
-	}
-	var unitCount, unconfirmed int
-	if err := tx.QueryRow(ctx, `SELECT COUNT(*),COUNT(*) FILTER (WHERE COALESCE((SELECT decision FROM go_confirmation_decisions d WHERE d.unit_version_id=v.unit_version_id ORDER BY d.created_at DESC,d.decision_id DESC LIMIT 1),'PENDING')<>'CONFIRMED') FROM go_confirmation_unit_versions v WHERE v.draft_id=$1`, draftID).Scan(&unitCount, &unconfirmed); err != nil {
+	var isV4 bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM go_prd_outlines WHERE task_id=$1)`, taskID).Scan(&isV4); err != nil {
 		return runcontrol.PublishPreviewResult{}, err
 	}
-	if unitCount > 0 && unconfirmed > 0 {
-		return runcontrol.PublishPreviewResult{}, runcontrol.ErrInvalidRunStatus
+	if isV4 {
+		if taskStatus != string(runcontrol.ReviewReviewable) {
+			return runcontrol.PublishPreviewResult{}, runcontrol.ErrInvalidRunStatus
+		}
+		document, version, err := buildV4PublishDocumentTx(ctx, tx, taskID, taskVersion)
+		if err != nil {
+			return runcontrol.PublishPreviewResult{}, err
+		}
+		draftID = nil
+		sourceVersionID = document.SourceVersionID
+		publishContent = document.Content
+		contentHash, draftVersion = document.ContentHash, version
+	} else {
+		var legacyDraftID string
+		if err := tx.QueryRow(ctx, `SELECT draft_id, patch_hash, task_version FROM go_working_draft_versions WHERE task_id=$1 ORDER BY task_version DESC, created_at DESC LIMIT 1`, taskID).Scan(&legacyDraftID, &contentHash, &draftVersion); err != nil {
+			return runcontrol.PublishPreviewResult{}, mapNotFound(err)
+		}
+		var unitCount, unconfirmed int
+		if err := tx.QueryRow(ctx, `SELECT COUNT(*),COUNT(*) FILTER (WHERE COALESCE((SELECT decision FROM go_confirmation_decisions d WHERE d.unit_version_id=v.unit_version_id ORDER BY d.created_at DESC,d.decision_id DESC LIMIT 1),'PENDING')<>'CONFIRMED') FROM go_confirmation_unit_versions v WHERE v.draft_id=$1`, legacyDraftID).Scan(&unitCount, &unconfirmed); err != nil {
+			return runcontrol.PublishPreviewResult{}, err
+		}
+		if unitCount > 0 && unconfirmed > 0 {
+			return runcontrol.PublishPreviewResult{}, runcontrol.ErrInvalidRunStatus
+		}
+		draftID, sourceVersionID, publishContent = legacyDraftID, nil, nil
 	}
 	publishID, err := id.New("publish")
 	if err != nil {
 		return runcontrol.PublishPreviewResult{}, err
 	}
-	expiresAt := now.Add(10 * time.Minute)
-	if _, err := tx.Exec(ctx, `INSERT INTO go_publish_intents (publish_id,task_id,tenant_id,owner_id,draft_id,task_version,draft_version,content_hash,status,expires_at,available_at,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'PREVIEW',$9,$10,$10,$10)`, publishID, taskID, tenantID, ownerID, draftID, taskVersion, draftVersion, contentHash, expiresAt, now); err != nil {
+	// PostgreSQL stores timestamptz at microsecond precision. Bind the token to
+	// that durable representation so the immediate response and a replayed
+	// confirmation calculate exactly the same HMAC input.
+	expiresAt := now.Add(10 * time.Minute).Truncate(time.Microsecond)
+	if _, err := tx.Exec(ctx, `INSERT INTO go_publish_intents (publish_id,task_id,tenant_id,owner_id,draft_id,task_version,draft_version,content_hash,status,expires_at,available_at,created_at,updated_at,source_version_id,publish_content) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'PREVIEW',$9,$10,$10,$10,$11,$12)`, publishID, taskID, tenantID, ownerID, draftID, taskVersion, draftVersion, contentHash, expiresAt, now, sourceVersionID, publishContent); err != nil {
 		return runcontrol.PublishPreviewResult{}, err
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO go_command_idempotency (tenant_id,owner_id,operation,idempotency_key,request_hash,resource_id,created_at) VALUES ($1,$2,'PUBLISH_PREVIEW',$3,$4,$5,$6)`, tenantID, ownerID, idempotencyKey, requestHash, publishID, now); err != nil {
@@ -175,6 +202,64 @@ func (s *PostgresStore) ListPublishes(ctx context.Context, tenantID, ownerID, ta
 	return items, nil
 }
 
+func buildV4PublishDocumentTx(ctx context.Context, tx pgx.Tx, taskID string, taskVersion int) (runcontrol.PublishDocument, int, error) {
+	var outlineVersionID, outlineHash string
+	var outlineVersion int
+	var outlinePayload []byte
+	if err := tx.QueryRow(ctx, `SELECT v.outline_version_id,v.version,v.content_hash,v.payload FROM go_prd_outline_versions v JOIN go_prd_outlines o ON o.outline_id=v.outline_id WHERE o.task_id=$1 AND v.status='LOCKED'`, taskID).Scan(&outlineVersionID, &outlineVersion, &outlineHash, &outlinePayload); err != nil {
+		return runcontrol.PublishDocument{}, 0, mapNotFound(err)
+	}
+	var outline runcontrol.OutlineCandidate
+	if err := json.Unmarshal(outlinePayload, &outline); err != nil {
+		return runcontrol.PublishDocument{}, 0, err
+	}
+	var reportID, disposition string
+	var reportPayload []byte
+	if err := tx.QueryRow(ctx, `SELECT report_id,disposition,payload FROM go_full_review_reports WHERE task_id=$1 AND outline_version_id=$2 ORDER BY created_at DESC LIMIT 1`, taskID, outlineVersionID).Scan(&reportID, &disposition, &reportPayload); err != nil {
+		return runcontrol.PublishDocument{}, 0, mapNotFound(err)
+	}
+	if disposition != "PASSED" {
+		return runcontrol.PublishDocument{}, 0, runcontrol.ErrInvalidRunStatus
+	}
+	var report struct {
+		OutlineHash string            `json:"outline_hash"`
+		UnitHashes  map[string]string `json:"unit_hashes"`
+	}
+	if err := json.Unmarshal(reportPayload, &report); err != nil || strings.TrimPrefix(report.OutlineHash, "sha256:") != strings.TrimPrefix(outlineHash, "sha256:") {
+		return runcontrol.PublishDocument{}, 0, runcontrol.ErrInvalidRunStatus
+	}
+	parts := []string{"# " + strings.TrimSpace(outline.Title)}
+	for _, planned := range outline.Units {
+		var status, contentHash string
+		var payload []byte
+		err := tx.QueryRow(ctx, `
+			SELECT COALESCE(u.review_status,'PENDING'),v.content_hash,v.payload
+			  FROM go_confirmation_units u JOIN go_confirmation_unit_versions v ON v.unit_id=u.unit_id
+			 WHERE u.task_id=$1 AND u.unit_key=$2 AND u.outline_version_id=$3
+			 ORDER BY v.unit_version_no DESC LIMIT 1`, taskID, planned.UnitKey, outlineVersionID).Scan(&status, &contentHash, &payload)
+		if err != nil {
+			return runcontrol.PublishDocument{}, 0, mapNotFound(err)
+		}
+		if status != "CONFIRMED" || strings.TrimPrefix(report.UnitHashes[planned.UnitKey], "sha256:") != strings.TrimPrefix(contentHash, "sha256:") {
+			return runcontrol.PublishDocument{}, 0, runcontrol.ErrInvalidRunStatus
+		}
+		var candidate runcontrol.ConfirmationCandidate
+		if err := json.Unmarshal(payload, &candidate); err != nil {
+			return runcontrol.PublishDocument{}, 0, err
+		}
+		parts = append(parts, strings.TrimSpace(candidate.Markdown))
+	}
+	if len(report.UnitHashes) != len(outline.Units) {
+		return runcontrol.PublishDocument{}, 0, runcontrol.ErrInvalidRunStatus
+	}
+	content := []byte(strings.Join(parts, "\n\n"))
+	return runcontrol.PublishDocument{
+		WorkflowVersion: runcontrol.WorkflowVersionV4,
+		SourceVersionID: outlineVersionID + ":" + reportID,
+		Content:         content, ContentHash: confirmationRequestHash(string(content)), TaskVersion: taskVersion,
+	}, outlineVersion, nil
+}
+
 func (s *PostgresStore) ClaimPendingPublishes(ctx context.Context, workerID string, limit int, now time.Time, ttl time.Duration) ([]runcontrol.PublishJob, error) {
 	if limit < 1 {
 		limit = 1
@@ -200,11 +285,12 @@ func (s *PostgresStore) ClaimPendingPublishes(ctx context.Context, workerID stri
 		)
 		UPDATE go_publish_intents p
 		   SET status='RUNNING', claim_worker=$3, claim_expires_at=$4, updated_at=$1
-		  FROM claim, go_working_draft_versions d
-		 WHERE p.publish_id=claim.publish_id AND d.draft_id=p.draft_id
+		  FROM claim
+		 WHERE p.publish_id=claim.publish_id
 		RETURNING p.publish_id,p.task_id,p.status,p.task_version,p.draft_version,p.content_hash,
 		          COALESCE(p.safe_url,''),COALESCE(p.provider_revision,''),COALESCE(p.error_code,''),
-		          p.retryable,p.created_at,p.updated_at,p.tenant_id,p.owner_id,d.patch,
+		          p.retryable,p.created_at,p.updated_at,p.tenant_id,p.owner_id,
+		          COALESCE((SELECT d.patch FROM go_working_draft_versions d WHERE d.draft_id=p.draft_id),p.publish_content),
 		          claim.source_status='RECONCILING'`, now, limit, workerID, now.Add(ttl))
 	if err != nil {
 		return nil, err
