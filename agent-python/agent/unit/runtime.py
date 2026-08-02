@@ -295,8 +295,6 @@ class ReviewableUnitRuntime:
     def _unit_candidate(
         request: UnitRunRequest, value: Mapping[str, object]
     ) -> Mapping[str, object]:
-        if value.get("schema_version") == "unit-candidate.v1":
-            return value
         return {
             "schema_version": "unit-candidate.v1",
             "unit_key": request.scope.current_unit_key,
@@ -314,13 +312,13 @@ class ReviewableUnitRuntime:
     def _unit_patch(
         request: UnitRunRequest, value: Mapping[str, object]
     ) -> Mapping[str, object]:
-        if value.get("schema_version") == "unit-patch.v1":
-            return value
         return {
             "schema_version": "unit-patch.v1",
             "unit_key": request.scope.current_unit_key,
             "base_content_hash": request.scope.base_unit_hash,
-            "replacement_markdown": value.get("markdown", ""),
+            "replacement_markdown": value.get(
+                "replacement_markdown", value.get("markdown", "")
+            ),
             "claims": value.get("claims", []),
             "resolved_issue_ids": value.get("resolved_issue_ids", []),
             "preserved_unknown_ids": value.get("preserved_unknown_ids", []),

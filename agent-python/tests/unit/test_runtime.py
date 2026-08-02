@@ -8,6 +8,7 @@ from agent.bootstrap import DeterministicStructuredModel
 from agent.checkpoint import CheckpointCodec
 from agent.context import RunContext
 from agent.graph import LangGraphAgentLoop
+from agent.model import ModelResponse
 from agent.quality import DraftQualityPolicy
 from agent.runtime import BufferedRuntimeEventSink
 from agent.unit.models import RunPurpose, UnitScope
@@ -125,37 +126,31 @@ def test_reviewable_runtime_normalizes_provider_outline_envelope() -> None:
 
         def complete(self, system_prompt: str, user_prompt: str):
             self.request = json.loads(user_prompt)
-            return type(
-                "Response",
-                (),
-                {
-                    "output": json.dumps(
-                        {
-                            "schema_version": "outline-candidate.v1",
-                            "outline": {
-                                "units": [
-                                    {
-                                        "key": "unit-1",
-                                        "title": "部署验证",
-                                        "ordinal": 0,
-                                        "dependencies": [],
-                                        "content": {
-                                            "goal": "验证部署",
-                                            "acceptance_criteria": ["HTTP 200"],
-                                        },
-                                    }
-                                ]
-                            },
+            return ModelResponse(
+                output=json.dumps(
+                    {
+                        "schema_version": "outline-candidate.v1",
+                        "outline": {
+                            "units": [
+                                {
+                                    "key": "unit-1",
+                                    "title": "部署验证",
+                                    "ordinal": 0,
+                                    "dependencies": [],
+                                    "content": {
+                                        "goal": "验证部署",
+                                        "acceptance_criteria": ["HTTP 200"],
+                                    },
+                                }
+                            ]
                         },
-                        ensure_ascii=False,
-                    ),
-                    "token_usage": {"total_tokens": 1},
-                    "model_id": "provider-model",
-                    "finish_reason": "stop",
-                    "provider_request_id": None,
-                    "latency_ms": 1,
-                },
-            )()
+                    },
+                    ensure_ascii=False,
+                ),
+                token_usage={"total_tokens": 1},
+                model_id="provider-model",
+                latency_ms=1,
+            )
 
     model = ProviderEnvelopeModel()
     result = LangGraphAgentLoop(
@@ -175,3 +170,40 @@ def test_reviewable_runtime_normalizes_provider_outline_envelope() -> None:
     contract = model.request["output_contract"]
     assert isinstance(contract, dict)
     assert "nodes" in contract
+
+
+def test_reviewable_runtime_locks_provider_unit_identity_to_scope() -> None:
+    class IdentityDriftingModel:
+        def complete(self, system_prompt: str, user_prompt: str) -> ModelResponse:
+            return ModelResponse(
+                output=json.dumps(
+                    {
+                        "schema_version": "unit-candidate.v1",
+                        "unit_key": "provider-invented-unit",
+                        "title": "Provider invented title",
+                        "ordinal": 0,
+                        "node_keys": ["provider-invented-node"],
+                        "markdown": "# 需求与验收\n\n## 验收标准\n\n- 输出必须遵守冻结范围。",
+                        "claims": [],
+                        "claim_ids": [],
+                        "unknown_ids": [],
+                        "used_fact_ids": [],
+                    },
+                    ensure_ascii=False,
+                ),
+                token_usage={"total_tokens": 1},
+                model_id="provider-model",
+            )
+
+    result = LangGraphAgentLoop(
+        model=IdentityDriftingModel(),
+        checkpoint_codec=CheckpointCodec(),
+        quality_policy=DraftQualityPolicy(),
+    )(_context(_scope_proto()))
+
+    assert result.run_output is not None
+    payload = json.loads(result.run_output.payload)
+    assert payload["unit_key"] == "requirements"
+    assert payload["title"] == "需求与验收"
+    assert payload["ordinal"] == 1
+    assert payload["node_keys"] == ["requirements"]
