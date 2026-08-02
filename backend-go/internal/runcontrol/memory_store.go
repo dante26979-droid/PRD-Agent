@@ -29,6 +29,9 @@ var (
 	ErrTaskVersionConflict = errors.New("task version conflict")
 	ErrSensitivePayload    = errors.New("sensitive value is not allowed in agent payload")
 	ErrCapacityExhausted   = errors.New("agent waiting queue is full")
+	ErrBudgetExhausted     = errors.New("run budget is exhausted")
+	ErrLedgerConflict      = errors.New("run execution ledger transition conflict")
+	ErrOutcomeUnknown      = errors.New("remote call outcome is unknown")
 )
 
 const (
@@ -73,6 +76,25 @@ type MemoryStore struct {
 	confirmationVersions      map[string]memoryConfirmationVersion
 	confirmationDecisions     map[string]memoryConfirmationDecision
 	revisionScopes            map[string]RevisionScope
+	budgets                   map[string]memoryBudgetState
+	ledgerEntries             map[string]LedgerEntry
+	unitScopes                map[string]UnitScope
+	runOutputs                map[string]RunOutput
+	runOutputReceipts         map[string]RunOutputReceipt
+	reviewOutlines            map[string]ReviewOutlineVersion
+	reviewUnits               map[string]map[string]ReviewUnit
+	reviewTransitions         map[string]memoryReviewTransition
+	fullReviewReports         map[string]FullReviewReport
+	gateDecisionRecords       map[string]GateDecisionRecord
+	rolloutStageState         RolloutStageState
+	drainRecords              map[string]DrainRecord
+	rolloutAssignments        map[string]RolloutAssignment
+	rolloutOperatorResults    map[string]RolloutOperatorResult
+	rolloutCommandHashes      map[string]string
+	rolloutGateResults        map[string]RolloutGateOperatorResult
+	rolloutStageResults       map[string]RolloutStageOperatorResult
+	readinessRecords          map[string]ReadinessRecord
+	readinessResults          map[string]ReadinessOperatorResult
 }
 
 type memoryCheckpoint struct {
@@ -98,21 +120,32 @@ type memoryAttempt struct {
 	createdAt time.Time
 }
 
+type memoryBudgetState struct {
+	policy    RunBudget
+	reserved  BudgetDelta
+	consumed  BudgetDelta
+	overage   BudgetDelta
+	startedAt time.Time
+}
+
 type memoryRetryIdempotency struct {
 	requestHash string
 	run         AgentRun
 }
 
 type memoryPublish struct {
-	record       PublishRecord
-	tenantID     string
-	ownerID      string
-	draftKey     string
-	content      []byte
-	expiresAt    time.Time
-	availableAt  time.Time
-	claimWorker  string
-	claimExpires time.Time
+	record           PublishRecord
+	tenantID         string
+	ownerID          string
+	draftKey         string
+	content          []byte
+	expiresAt        time.Time
+	availableAt      time.Time
+	claimWorker      string
+	claimExpires     time.Time
+	retentionWorker  string
+	retentionExpires time.Time
+	payloadPurgedAt  time.Time
 }
 
 type memoryConfirmationVersion struct {
@@ -140,6 +173,16 @@ func NewMemoryStore(policy QueuePolicy) *MemoryStore {
 	if policy.ConfirmationSecret == "" {
 		policy.ConfirmationSecret = "local-publish-confirmation-secret"
 	}
+	policy.DefaultWorkflowVersion = DefaultWorkflowVersion(policy.DefaultWorkflowVersion)
+	if policy.DefaultWorkflowVersion == WorkflowVersionV4 && policy.DefaultExecutionLedgerVersion == "" {
+		policy.DefaultExecutionLedgerVersion = ExecutionLedgerVersionV1
+	}
+	if policy.DefaultExecutionLedgerVersion != "" && policy.DefaultExecutionLedgerVersion != ExecutionLedgerVersionV1 {
+		policy.DefaultExecutionLedgerVersion = ""
+	}
+	if policy.DefaultExecutionLedgerVersion == ExecutionLedgerVersionV1 && policy.DefaultRunBudget == (RunBudget{}) {
+		policy.DefaultRunBudget = defaultV4RunBudget()
+	}
 	return &MemoryStore{
 		policy:                    policy,
 		tasks:                     make(map[string]Task),
@@ -161,6 +204,25 @@ func NewMemoryStore(policy QueuePolicy) *MemoryStore {
 		confirmationVersions:      make(map[string]memoryConfirmationVersion),
 		confirmationDecisions:     make(map[string]memoryConfirmationDecision),
 		revisionScopes:            make(map[string]RevisionScope),
+		budgets:                   make(map[string]memoryBudgetState),
+		ledgerEntries:             make(map[string]LedgerEntry),
+		unitScopes:                make(map[string]UnitScope),
+		runOutputs:                make(map[string]RunOutput),
+		runOutputReceipts:         make(map[string]RunOutputReceipt),
+		reviewOutlines:            make(map[string]ReviewOutlineVersion),
+		reviewUnits:               make(map[string]map[string]ReviewUnit),
+		reviewTransitions:         make(map[string]memoryReviewTransition),
+		fullReviewReports:         make(map[string]FullReviewReport),
+		gateDecisionRecords:       make(map[string]GateDecisionRecord),
+		rolloutStageState:         RolloutStageState{Stage: RolloutLocalOnly, Version: 1},
+		drainRecords:              make(map[string]DrainRecord),
+		rolloutAssignments:        make(map[string]RolloutAssignment),
+		rolloutOperatorResults:    make(map[string]RolloutOperatorResult),
+		rolloutCommandHashes:      make(map[string]string),
+		rolloutGateResults:        make(map[string]RolloutGateOperatorResult),
+		rolloutStageResults:       make(map[string]RolloutStageOperatorResult),
+		readinessRecords:          make(map[string]ReadinessRecord),
+		readinessResults:          make(map[string]ReadinessOperatorResult),
 	}
 }
 
@@ -199,13 +261,43 @@ func (s *MemoryStore) CreateTaskWithRun(_ context.Context, tenantID, ownerID, me
 			return TaskWithRun{}, ErrCapacityExhausted
 		}
 	}
+	workflowVersion := s.policy.DefaultWorkflowVersion
+	var rolloutAssignment *RolloutAssignment
+	if s.policy.RolloutPolicy != nil {
+		assignment, assignmentErr := s.policy.RolloutPolicy.Assign(AssignmentRequest{TenantID: tenantID, OwnerID: ownerID, TaskID: taskID})
+		if assignmentErr != nil {
+			return TaskWithRun{}, assignmentErr
+		}
+		workflowVersion = assignment.AuthoritativeWorkflowVersion
+		rolloutAssignment = &assignment
+	}
+	ledgerVersion := ledgerVersionForPolicy(s.policy)
+	if workflowVersion == WorkflowVersionV4 && ledgerVersion == "" {
+		ledgerVersion = ExecutionLedgerVersionV1
+	}
+	if workflowVersion == WorkflowVersionV4 && s.policy.DefaultRunBudget == (RunBudget{}) {
+		s.policy.DefaultRunBudget = defaultV4RunBudget()
+	}
 	run := AgentRun{
 		RunID: runID, TaskID: taskID, TenantID: tenantID, OwnerID: ownerID,
-		Status: status, QueueSlotAcquired: status == RunQueued,
+		WorkflowVersion:        workflowVersion,
+		ExecutionLedgerVersion: ledgerVersion,
+		Status:                 status, QueueSlotAcquired: status == RunQueued,
 		CreatedAt: now, UpdatedAt: now,
 	}
 	s.tasks[taskID] = task
 	s.runs[runID] = run
+	if workflowVersion == WorkflowVersionV4 {
+		outlineScope, scopeErr := BuildUnitScope(UnitScope{Purpose: RunPurposePlanOutline})
+		if scopeErr != nil {
+			return TaskWithRun{}, scopeErr
+		}
+		s.unitScopes[runID] = outlineScope
+	}
+	if rolloutAssignment != nil {
+		s.rolloutAssignments[runID] = *rolloutAssignment
+	}
+	s.initializeBudgetLocked(run, now)
 	s.events[taskID] = []TaskEvent{{
 		EventID: "evt-" + taskID + "-1", TaskID: taskID, TenantID: tenantID, OwnerID: ownerID,
 		Sequence: 1, EventType: "task.created", Payload: []byte(`{"task_id":"` + taskID + `","run_id":"` + runID + `","status":"DRAFT"}`), OccurredAt: now,
@@ -217,6 +309,10 @@ func (s *MemoryStore) CreateTaskWithRun(_ context.Context, tenantID, ownerID, me
 	value := TaskWithRun{Task: task, Run: run}
 	s.idempotency[key] = memoryIdempotency{requestHash: requestHash, value: value}
 	return value, nil
+}
+
+func defaultV4RunBudget() RunBudget {
+	return RunBudget{MaxModelAttempts: 8, MaxToolCalls: 8, MaxIterations: 12, MaxReplans: 2, MaxSupplements: 2, MaxQualityRepairs: 2, MaxInputTokens: 120000, MaxOutputTokens: 32000, MaxElapsedMS: 1800000}
 }
 
 func (s *MemoryStore) RetryTask(_ context.Context, tenantID, ownerID, taskID, idempotencyKey string, expectedTaskVersion int) (AgentRun, error) {
@@ -254,17 +350,45 @@ func (s *MemoryStore) RetryTask(_ context.Context, tenantID, ownerID, taskID, id
 		return AgentRun{}, err
 	}
 	now := time.Now().UTC()
+	workflowVersion := s.policy.DefaultWorkflowVersion
+	inheritedAssignment, hasInheritedAssignment := s.inheritedRolloutAssignmentLocked(taskID)
+	if hasInheritedAssignment {
+		workflowVersion = inheritedAssignment.AuthoritativeWorkflowVersion
+	}
 	run := AgentRun{
 		RunID: runID, TaskID: taskID, TenantID: tenantID, OwnerID: ownerID,
-		Status: status, QueueSlotAcquired: status == RunQueued, CreatedAt: now, UpdatedAt: now,
+		WorkflowVersion:        workflowVersion,
+		ExecutionLedgerVersion: ledgerVersionForPolicy(s.policy),
+		Status:                 status, QueueSlotAcquired: status == RunQueued, CreatedAt: now, UpdatedAt: now,
 	}
 	s.runs[runID] = run
+	if inheritedScope, ok := s.inheritedUnitScopeLocked(taskID); ok {
+		s.unitScopes[runID] = inheritedScope
+	}
+	if hasInheritedAssignment {
+		s.rolloutAssignments[runID] = inheritedAssignment
+	}
+	s.initializeBudgetLocked(run, now)
 	if status == RunQueued {
 		s.lastScheduled[scheduleOwnerKey(tenantID, ownerID)] = now
 		s.addRunRequestOutboxLocked(run, "USER_RETRY", now)
 	}
 	s.retryIdempotency[idempotencyIdentity] = memoryRetryIdempotency{requestHash: requestHash, run: run}
 	return run, nil
+}
+
+func (s *MemoryStore) inheritedUnitScopeLocked(taskID string) (UnitScope, bool) {
+	var selected UnitScope
+	var selectedAt time.Time
+	found := false
+	for runID, scope := range s.unitScopes {
+		run, ok := s.runs[runID]
+		if !ok || run.TaskID != taskID || (found && !run.CreatedAt.After(selectedAt)) {
+			continue
+		}
+		selected, selectedAt, found = scope, run.CreatedAt, true
+	}
+	return selected, found
 }
 
 func (s *MemoryStore) ListTasks(_ context.Context, tenantID, ownerID string, limit int) ([]Task, error) {
@@ -588,20 +712,63 @@ func (s *MemoryStore) GetRunContext(_ context.Context, lease LeaseContext) (Agen
 		}
 	}
 	sort.Slice(artifacts, func(i, j int) bool { return artifacts[i].ArtifactKey < artifacts[j].ArtifactKey })
-	var resumeDraft *SubmittedDraftReceipt
+	summary := ResumeStateSummary{
+		CheckpointContentHash: checkpoint.contentHash,
+		EvidenceCount:         int64(len(evidence)),
+		ArtifactCount:         int64(len(artifacts)),
+	}
+	for _, item := range evidence {
+		summary.EvidenceRefs = append(summary.EvidenceRefs, EvidenceReference(item))
+	}
+	for _, item := range artifacts {
+		summary.Artifacts = append(summary.Artifacts, RunArtifactIdentity{ArtifactKey: item.ArtifactKey, ArtifactType: item.ArtifactType, Generation: item.Generation, RequestHash: item.RequestHash, ContentHash: item.ContentHash})
+	}
+	for _, attempt := range s.attempts {
+		if attempt.runID == run.RunID && attempt.value.Status != "PLANNED" {
+			summary.TerminalModelAttemptCount++
+		}
+	}
+	var submittedDraft *SubmittedDraftReceipt
 	for _, draft := range s.drafts {
-		if draft.runID == run.RunID && (resumeDraft == nil || draft.taskVersion > resumeDraft.TaskVersion) {
-			resumeDraft = &SubmittedDraftReceipt{DraftKey: draft.draftKey, ContentHash: draft.patchHash, TaskVersion: draft.taskVersion, Content: append([]byte(nil), draft.patch...)}
+		if draft.runID == run.RunID && (submittedDraft == nil || draft.taskVersion > submittedDraft.TaskVersion) {
+			submittedDraft = &SubmittedDraftReceipt{DraftKey: draft.draftKey, ContentHash: draft.patchHash, TaskVersion: draft.taskVersion, Content: append([]byte(nil), draft.patch...)}
 		}
 	}
 	scope := s.revisionScopes[run.RunID]
 	scope.ReopenedUnitKeys = append([]string(nil), scope.ReopenedUnitKeys...)
 	scope.ImmutableUnitKeys = append([]string(nil), scope.ImmutableUnitKeys...)
+	var baseDraft *SubmittedDraftReceipt
 	if scope.BaseDraftID != "" {
 		base := s.draftByIDLocked(scope.BaseDraftID)
-		resumeDraft = &SubmittedDraftReceipt{DraftKey: base.draftKey, ContentHash: base.patchHash, TaskVersion: base.taskVersion, Content: append([]byte(nil), base.patch...)}
+		baseDraft = &SubmittedDraftReceipt{DraftKey: base.draftKey, ContentHash: base.patchHash, TaskVersion: base.taskVersion, Content: append([]byte(nil), base.patch...)}
 	}
-	return AgentRunInput{Run: run, TaskMessage: task.Message, WorkflowVersion: "agent-runtime.v1", Checkpoint: append([]byte(nil), checkpoint.payload...), CheckpointSequence: checkpoint.sequence, TaskVersion: task.Version, ResumeEvidence: evidence, ResumeArtifacts: artifacts, RevisionScope: scope, ResumeDraft: resumeDraft}, nil
+	legacyDraft := submittedDraft
+	if baseDraft != nil {
+		legacyDraft = baseDraft
+	}
+	baseTaskVersion := task.Version
+	if run.WorkflowVersion == WorkflowVersionV4 && submittedDraft != nil {
+		baseTaskVersion = submittedDraft.TaskVersion - 1
+	}
+	budget := s.budgets[run.RunID]
+	ledgerEntries := make([]LedgerEntry, 0)
+	for _, entry := range s.ledgerEntries {
+		if entry.RunID == run.RunID {
+			entry.EvidenceRefs = append([]string(nil), entry.EvidenceRefs...)
+			ledgerEntries = append(ledgerEntries, entry)
+		}
+	}
+	sort.Slice(ledgerEntries, func(i, j int) bool { return ledgerEntries[i].CreatedAt.Before(ledgerEntries[j].CreatedAt) })
+	unitScope := s.unitScopes[lease.RunID]
+	input := AgentRunInput{Run: run, TaskMessage: task.Message, WorkflowVersion: string(run.WorkflowVersion), Checkpoint: append([]byte(nil), checkpoint.payload...), CheckpointSequence: checkpoint.sequence, TaskVersion: baseTaskVersion, ResumeEvidence: evidence, ResumeArtifacts: artifacts, RevisionScope: scope, ResumeDraft: legacyDraft, BaseDraft: baseDraft, SubmittedDraft: submittedDraft, ResumeSummary: summary, ExecutionLedgerVersion: string(run.ExecutionLedgerVersion), RunBudget: budget.policy, ConsumedBudget: budget.consumed, LedgerEntries: ledgerEntries, RunPurpose: unitScope.Purpose, UnitScope: unitScope}
+	if assignment, ok := s.rolloutAssignments[lease.RunID]; ok {
+		input.EvaluationMode = assignment.EvaluationMode
+		input.AuthoritativeWorkflow = assignment.AuthoritativeWorkflowVersion
+		input.ShadowWorkflow = assignment.ShadowWorkflowVersion
+		input.CandidatePolicyVersion = assignment.PolicyVersion
+		input.AssignmentHash = assignment.AssignmentHash
+	}
+	return input, nil
 }
 
 func (s *MemoryStore) GetRun(_ context.Context, runID string) (AgentRun, error) {
@@ -665,6 +832,160 @@ func (s *MemoryStore) HasModelAttempts(_ context.Context, runID string) (bool, e
 	return false, nil
 }
 
+func (s *MemoryStore) ReserveLedgerEntry(_ context.Context, lease LeaseContext, entry LedgerEntry) (LedgerEntry, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.validateLedgerMutationLocked(lease, entry); err != nil {
+		return LedgerEntry{}, err
+	}
+	if assignment, ok := s.rolloutAssignments[lease.RunID]; ok && assignment.EvaluationMode == EvaluationShadow && (entry.EntryKind == LedgerEntryModel || entry.EntryKind == LedgerEntryCapability) {
+		return LedgerEntry{}, fmt.Errorf("%w: SHADOW_REMOTE_EFFECT_FORBIDDEN", errNoRemoteEffects)
+	}
+	key := ledgerMapKey(lease.RunID, entry.OperationKey)
+	if existing, ok := s.ledgerEntries[key]; ok {
+		if !sameLedgerIdentity(existing, entry) {
+			return LedgerEntry{}, ErrInvalidIdempotency
+		}
+		return cloneLedgerEntry(existing), nil
+	}
+	if entry.EntryKind == LedgerEntryLocalTransition {
+		return LedgerEntry{}, fmt.Errorf("%w: local transition must use ConsumeLocalLedgerEntry", ErrLedgerConflict)
+	}
+	budget := s.budgets[lease.RunID]
+	if elapsedBudgetExhausted(budget, time.Now().UTC()) {
+		return LedgerEntry{}, ErrBudgetExhausted
+	}
+	if !budgetAllows(budget.policy, addBudget(budget.reserved, budget.consumed), entry.Reservation) {
+		return LedgerEntry{}, ErrBudgetExhausted
+	}
+	now := time.Now().UTC()
+	entry.EntryID = "ledger-" + stableHash(key)
+	entry.RunID = lease.RunID
+	entry.Status = LedgerReserved
+	entry.Consumption = BudgetDelta{}
+	entry.CreatedAt, entry.UpdatedAt = now, now
+	entry.EvidenceRefs = append([]string(nil), entry.EvidenceRefs...)
+	budget.reserved = addBudget(budget.reserved, entry.Reservation)
+	s.budgets[lease.RunID] = budget
+	s.ledgerEntries[key] = entry
+	return cloneLedgerEntry(entry), nil
+}
+
+func (s *MemoryStore) MarkLedgerCallStarted(_ context.Context, lease LeaseContext, operationKey, requestHash string) (LedgerEntry, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.validateLeaseLocked(lease, time.Now().UTC()); err != nil {
+		return LedgerEntry{}, err
+	}
+	key := ledgerMapKey(lease.RunID, operationKey)
+	entry, ok := s.ledgerEntries[key]
+	if !ok {
+		return LedgerEntry{}, ErrNotFound
+	}
+	if entry.RequestHash != requestHash {
+		return LedgerEntry{}, ErrInvalidIdempotency
+	}
+	if entry.Status == LedgerCallStarted {
+		return cloneLedgerEntry(entry), nil
+	}
+	if entry.Status != LedgerReserved {
+		return LedgerEntry{}, ErrLedgerConflict
+	}
+	now := time.Now().UTC()
+	entry.Status, entry.CallStartedAt, entry.UpdatedAt = LedgerCallStarted, &now, now
+	s.ledgerEntries[key] = entry
+	return cloneLedgerEntry(entry), nil
+}
+
+func (s *MemoryStore) FinishLedgerEntry(_ context.Context, lease LeaseContext, result LedgerFinish) (LedgerEntry, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.validateLeaseLocked(lease, time.Now().UTC()); err != nil {
+		return LedgerEntry{}, err
+	}
+	key := ledgerMapKey(lease.RunID, result.OperationKey)
+	entry, ok := s.ledgerEntries[key]
+	if !ok {
+		return LedgerEntry{}, ErrNotFound
+	}
+	if entry.RequestHash != result.RequestHash {
+		return LedgerEntry{}, ErrInvalidIdempotency
+	}
+	if entry.Status == LedgerSucceeded || entry.Status == LedgerFailed || entry.Status == LedgerOutcomeUnknown {
+		if !sameLedgerFinish(entry, result) {
+			return LedgerEntry{}, ErrLedgerConflict
+		}
+		return cloneLedgerEntry(entry), nil
+	}
+	if entry.Status != LedgerCallStarted || (result.Status != LedgerSucceeded && result.Status != LedgerFailed && result.Status != LedgerOutcomeUnknown) {
+		return LedgerEntry{}, ErrLedgerConflict
+	}
+	if result.Status == LedgerSucceeded && result.OutputArtifactKey == "" {
+		return LedgerEntry{}, fmt.Errorf("%w: successful remote entry requires an outcome artifact", ErrLedgerConflict)
+	}
+	if result.Status == LedgerSucceeded && result.OutputArtifactKey != "" {
+		artifact, ok := s.artifacts[lease.RunID+"\x00"+result.OutputArtifactKey]
+		if !ok || artifact.ContentHash != result.OutputArtifactHash || artifact.RequestHash != result.RequestHash {
+			return LedgerEntry{}, fmt.Errorf("%w: referenced outcome artifact is not durable", ErrLedgerConflict)
+		}
+	}
+	if result.Status == LedgerSucceeded {
+		for _, ref := range result.EvidenceRefs {
+			if !s.hasEvidenceRefLocked(lease.RunID, ref) {
+				return LedgerEntry{}, fmt.Errorf("%w: referenced evidence is not durable", ErrLedgerConflict)
+			}
+		}
+	}
+	budget := s.budgets[lease.RunID]
+	budget.reserved = subtractBudgetFloor(budget.reserved, entry.Reservation)
+	budget.consumed = addBudget(budget.consumed, result.Consumption)
+	budget.overage = budgetOverage(budget.policy, budget.consumed)
+	s.budgets[lease.RunID] = budget
+	now := time.Now().UTC()
+	entry.Status = result.Status
+	entry.Consumption = result.Consumption
+	entry.OutputArtifactKey = result.OutputArtifactKey
+	entry.OutputArtifactHash = result.OutputArtifactHash
+	entry.EvidenceRefs = append([]string(nil), result.EvidenceRefs...)
+	entry.ErrorCategory, entry.Retryable = result.ErrorCategory, result.Retryable
+	entry.CompletedAt, entry.UpdatedAt = &now, now
+	s.ledgerEntries[key] = entry
+	return cloneLedgerEntry(entry), nil
+}
+
+func (s *MemoryStore) ConsumeLocalLedgerEntry(_ context.Context, lease LeaseContext, entry LedgerEntry) (LedgerEntry, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.validateLedgerMutationLocked(lease, entry); err != nil {
+		return LedgerEntry{}, err
+	}
+	if entry.EntryKind != LedgerEntryLocalTransition {
+		return LedgerEntry{}, ErrLedgerConflict
+	}
+	key := ledgerMapKey(lease.RunID, entry.OperationKey)
+	if existing, ok := s.ledgerEntries[key]; ok {
+		if !sameLedgerIdentity(existing, entry) {
+			return LedgerEntry{}, ErrInvalidIdempotency
+		}
+		return cloneLedgerEntry(existing), nil
+	}
+	budget := s.budgets[lease.RunID]
+	if elapsedBudgetExhausted(budget, time.Now().UTC()) {
+		return LedgerEntry{}, ErrBudgetExhausted
+	}
+	if !budgetAllows(budget.policy, budget.consumed, entry.Consumption) {
+		return LedgerEntry{}, ErrBudgetExhausted
+	}
+	now := time.Now().UTC()
+	entry.EntryID, entry.RunID, entry.Status = "ledger-"+stableHash(key), lease.RunID, LedgerSucceeded
+	entry.Reservation = BudgetDelta{}
+	entry.CreatedAt, entry.CompletedAt, entry.UpdatedAt = now, &now, now
+	budget.consumed = addBudget(budget.consumed, entry.Consumption)
+	s.budgets[lease.RunID] = budget
+	s.ledgerEntries[key] = entry
+	return cloneLedgerEntry(entry), nil
+}
+
 func (s *MemoryStore) AppendEvidence(_ context.Context, lease LeaseContext, items []EvidenceItem) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -706,6 +1027,35 @@ func (s *MemoryStore) SaveRunArtifact(_ context.Context, lease LeaseContext, art
 	if artifact.ContentHash != "" && artifact.ContentHash != hash {
 		return RunArtifactReceipt{}, ErrInvalidPayload
 	}
+	if artifact.ArtifactType == "SHADOW_EVALUATION" {
+		assignment, ok := s.rolloutAssignments[lease.RunID]
+		if !ok {
+			return RunArtifactReceipt{}, ErrInvalidPayload
+		}
+		trace, err := ParseShadowEvaluationArtifact(lease.RunID, artifact, assignment)
+		if err != nil {
+			return RunArtifactReceipt{}, err
+		}
+		run := s.runs[lease.RunID]
+		persisted := PersistedAuthoritativeResult{RunID: lease.RunID, TaskID: run.TaskID}
+		if trace.OutputKey != "" {
+			output, ok := s.runOutputs[lease.RunID+"\x00"+trace.OutputKey]
+			if !ok {
+				return RunArtifactReceipt{}, fmt.Errorf("%w: shadow output was not persisted", ErrInvalidPayload)
+			}
+			persisted.OutputKey, persisted.OutputKind, persisted.OutputContentHash = output.OutputKey, output.OutputKind, output.ContentHash
+		} else {
+			for _, draft := range s.drafts {
+				if draft.runID == lease.RunID && draft.draftKey == trace.DraftKey {
+					persisted.DraftKey, persisted.DraftContentHash = draft.draftKey, draft.patchHash
+					break
+				}
+			}
+		}
+		if err := ValidatePersistedAuthoritativeTrace(trace, persisted); err != nil {
+			return RunArtifactReceipt{}, err
+		}
+	}
 	artifact.ContentHash = hash
 	key := lease.RunID + "\x00" + artifact.ArtifactKey
 	if existing, ok := s.artifacts[key]; ok {
@@ -742,6 +1092,248 @@ func (s *MemoryStore) SaveCheckpoint(_ context.Context, lease LeaseContext, sequ
 	}
 	s.checkpoints[lease.RunID] = memoryCheckpoint{sequence: sequence, payload: append([]byte(nil), checkpoint...), contentHash: contentHash}
 	return CheckpointReceipt{Sequence: sequence, ContentHash: contentHash}, nil
+}
+
+func (s *MemoryStore) SetRunUnitScope(_ context.Context, tenantID, ownerID, runID string, expectedTaskVersion int, scope UnitScope) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	run, ok := s.runs[runID]
+	if !ok || run.TenantID != tenantID || run.OwnerID != ownerID {
+		return ErrNotFound
+	}
+	task := s.tasks[run.TaskID]
+	if task.Version != expectedTaskVersion {
+		return ErrTaskVersionConflict
+	}
+	if run.WorkflowVersion != WorkflowVersionV4 {
+		return ErrInvalidPayload
+	}
+	built, err := BuildUnitScope(scope)
+	if err != nil {
+		return err
+	}
+	if existing, exists := s.unitScopes[runID]; exists {
+		if existing.ScopeHash != built.ScopeHash {
+			return ErrInvalidIdempotency
+		}
+		return nil
+	}
+	s.unitScopes[runID] = built
+	return nil
+}
+
+func (s *MemoryStore) SubmitRunOutput(_ context.Context, lease LeaseContext, output RunOutput) (RunOutputReceipt, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.validateLeaseLocked(lease, time.Now().UTC()); err != nil {
+		return RunOutputReceipt{}, err
+	}
+	run := s.runs[lease.RunID]
+	task := s.tasks[run.TaskID]
+	scope, ok := s.unitScopes[lease.RunID]
+	if !ok {
+		return RunOutputReceipt{}, ErrInvalidPayload
+	}
+	identity := lease.RunID + "\x00" + output.OutputKey
+	if existing, exists := s.runOutputs[identity]; exists {
+		if bareSHA256(existing.ContentHash) != bareSHA256(output.ContentHash) {
+			return RunOutputReceipt{}, ErrInvalidIdempotency
+		}
+		return s.runOutputReceipts[identity], nil
+	}
+	if err := ValidateRunOutput(scope, output, task.Version); err != nil {
+		return RunOutputReceipt{}, err
+	}
+	var outlineCandidate *OutlineCandidate
+	var unitCandidate *struct {
+		UnitKey     string   `json:"unit_key"`
+		Title       string   `json:"title"`
+		Ordinal     int      `json:"ordinal"`
+		NodeKeys    []string `json:"node_keys"`
+		Markdown    string   `json:"markdown"`
+		ContentHash string   `json:"content_hash"`
+		ClaimIDs    []string `json:"claim_ids"`
+		UnknownIDs  []string `json:"unknown_ids"`
+	}
+	var fullReviewCandidate *struct {
+		OutlineHash string            `json:"outline_hash"`
+		UnitHashes  map[string]string `json:"unit_hashes"`
+		Outcome     string            `json:"outcome"`
+	}
+	var unitPatch *struct {
+		UnitKey             string   `json:"unit_key"`
+		BaseContentHash     string   `json:"base_content_hash"`
+		ReplacementMarkdown string   `json:"replacement_markdown"`
+		ContentHash         string   `json:"content_hash"`
+		PreservedUnknownIDs []string `json:"preserved_unknown_ids"`
+		UsedFactIDs         []string `json:"used_fact_ids"`
+	}
+	if output.RunPurpose == RunPurposePlanOutline {
+		candidate, err := ParseOutlineCandidate(output.Payload)
+		if err != nil {
+			return RunOutputReceipt{}, err
+		}
+		outlineCandidate = &candidate
+	}
+	if output.RunPurpose == RunPurposeGenerateUnit {
+		candidate := new(struct {
+			UnitKey     string   `json:"unit_key"`
+			Title       string   `json:"title"`
+			Ordinal     int      `json:"ordinal"`
+			NodeKeys    []string `json:"node_keys"`
+			Markdown    string   `json:"markdown"`
+			ContentHash string   `json:"content_hash"`
+			ClaimIDs    []string `json:"claim_ids"`
+			UnknownIDs  []string `json:"unknown_ids"`
+		})
+		if err := json.Unmarshal(output.Payload, candidate); err != nil {
+			return RunOutputReceipt{}, ErrInvalidPayload
+		}
+		unitCandidate = candidate
+	}
+	if output.RunPurpose == RunPurposeFullReview {
+		candidate := new(struct {
+			OutlineHash string            `json:"outline_hash"`
+			UnitHashes  map[string]string `json:"unit_hashes"`
+			Outcome     string            `json:"outcome"`
+		})
+		if err := json.Unmarshal(output.Payload, candidate); err != nil || (candidate.Outcome != "PASSED" && candidate.Outcome != "NEEDS_REVISION") {
+			return RunOutputReceipt{}, ErrInvalidPayload
+		}
+		fullReviewCandidate = candidate
+	}
+	if output.RunPurpose == RunPurposeReviseUnit {
+		candidate := new(struct {
+			UnitKey             string   `json:"unit_key"`
+			BaseContentHash     string   `json:"base_content_hash"`
+			ReplacementMarkdown string   `json:"replacement_markdown"`
+			ContentHash         string   `json:"content_hash"`
+			PreservedUnknownIDs []string `json:"preserved_unknown_ids"`
+			UsedFactIDs         []string `json:"used_fact_ids"`
+		})
+		if err := json.Unmarshal(output.Payload, candidate); err != nil {
+			return RunOutputReceipt{}, ErrInvalidPayload
+		}
+		if candidate.ContentHash != "" && bareSHA256(candidate.ContentHash) != hashText(strings.TrimSpace(candidate.ReplacementMarkdown)) {
+			return RunOutputReceipt{}, ErrInvalidPayload
+		}
+		unitPatch = candidate
+	}
+	copyOutput := output
+	copyOutput.Payload = append([]byte(nil), output.Payload...)
+	copyOutput.ContentHash = bareSHA256(output.ContentHash)
+	s.runOutputs[identity] = copyOutput
+	if output.RunPurpose == RunPurposePlanOutline {
+		candidate := *outlineCandidate
+		now := time.Now().UTC()
+		outlineID := "outline-" + stableHash(task.TaskID)
+		outline := ReviewOutlineVersion{
+			OutlineID: outlineID, OutlineVersionID: "outline-version-" + stableHash(identity),
+			TaskID: task.TaskID, Version: 1, Status: OutlineDraft, Candidate: candidate,
+			ContentHash: candidate.ContentHash, SourceRunID: run.RunID, CreatedAt: now,
+		}
+		s.reviewOutlines[task.TaskID] = outline
+		task.Version++
+		task.Status = string(ReviewOutlineReview)
+		task.UpdatedAt = now
+		s.tasks[task.TaskID] = task
+		payload, _ := json.Marshal(map[string]any{"outline_version_id": outline.OutlineVersionID, "task_version": task.Version})
+		s.appendTaskEventLocked(task.TenantID, task.OwnerID, task.TaskID, "review.outline_materialized", payload)
+	}
+	if output.RunPurpose == RunPurposeGenerateUnit {
+		now := time.Now().UTC()
+		outline, ok := s.reviewOutlines[task.TaskID]
+		unit, unitOK := s.reviewUnits[task.TaskID][scope.CurrentUnitKey]
+		if !ok || outline.Status != OutlineLocked || !unitOK || unit.Status != UnitPending {
+			return RunOutputReceipt{}, ErrInvalidRunStatus
+		}
+		versionID := "review-unit-version-" + stableHash(identity)
+		value := ConfirmationUnitVersion{
+			UnitID: unit.UnitID, UnitVersionID: versionID, OutlineVersionID: outline.OutlineVersionID,
+			SourceRunID: run.RunID, UnitVersionNo: 1, UnitKey: unit.UnitKey, Title: unit.Title,
+			Ordinal: unit.Ordinal, Markdown: unitCandidate.Markdown,
+			ContentHash: bareSHA256(unitCandidate.ContentHash), ClaimIDs: append([]string(nil), unitCandidate.ClaimIDs...),
+			UnknownIDs: append([]string(nil), unitCandidate.UnknownIDs...), DependsOn: append([]string(nil), unit.DependsOn...),
+			ConfirmationStatus: string(UnitReviewing), CreatedAt: now,
+		}
+		s.confirmationVersions[versionID] = memoryConfirmationVersion{taskID: task.TaskID, taskVersion: task.Version + 1, value: value}
+		unit.Status = UnitReviewing
+		s.reviewUnits[task.TaskID][unit.UnitKey] = unit
+		task.Version++
+		task.Status = string(ReviewUnitReview)
+		task.UpdatedAt = now
+		s.tasks[task.TaskID] = task
+		payload, _ := json.Marshal(map[string]any{"unit_version_id": versionID, "unit_key": unit.UnitKey, "task_version": task.Version})
+		s.appendTaskEventLocked(task.TenantID, task.OwnerID, task.TaskID, "review.unit_materialized", payload)
+	}
+	if output.RunPurpose == RunPurposeFullReview {
+		now := time.Now().UTC()
+		outline, ok := s.reviewOutlines[task.TaskID]
+		if !ok || outline.Status != OutlineLocked || task.Status != string(ReviewFullReviewRunning) {
+			return RunOutputReceipt{}, ErrInvalidRunStatus
+		}
+		current := s.confirmedUnitContextLocked(task.TaskID)
+		if !sameConfirmedHashSet(current, scope.ConfirmedContext) {
+			return RunOutputReceipt{}, fmt.Errorf("%w: full review scope is stale", ErrTaskVersionConflict)
+		}
+		unitHashPayload, _ := canonicalJSON(fullReviewCandidate.UnitHashes)
+		report := FullReviewReport{
+			ReportID: "full-review-" + stableHash(identity), TaskID: task.TaskID,
+			OutlineVersionID: outline.OutlineVersionID, SourceRunID: run.RunID,
+			ContentHash: copyOutput.ContentHash, Disposition: fullReviewCandidate.Outcome,
+			UnitHashes: cloneStringMap(fullReviewCandidate.UnitHashes), UnitHashSetHash: hashBytesHex(unitHashPayload),
+			Payload: append([]byte(nil), copyOutput.Payload...), CreatedAt: now,
+		}
+		s.fullReviewReports[task.TaskID] = report
+		task.Version++
+		if report.Disposition == "PASSED" {
+			task.Status = string(ReviewReviewable)
+		} else {
+			task.Status = string(ReviewFullReview)
+		}
+		task.UpdatedAt = now
+		s.tasks[task.TaskID] = task
+		payload, _ := json.Marshal(map[string]any{"report_id": report.ReportID, "disposition": report.Disposition, "task_version": task.Version})
+		s.appendTaskEventLocked(task.TenantID, task.OwnerID, task.TaskID, "review.full_review_materialized", payload)
+	}
+	if output.RunPurpose == RunPurposeReviseUnit {
+		now := time.Now().UTC()
+		outline, ok := s.reviewOutlines[task.TaskID]
+		unit, unitOK := s.reviewUnits[task.TaskID][scope.CurrentUnitKey]
+		if !ok || outline.Status != OutlineLocked || !unitOK || unit.Status != UnitReopened {
+			return RunOutputReceipt{}, ErrInvalidRunStatus
+		}
+		var base ConfirmationUnitVersion
+		for _, item := range s.confirmationVersions {
+			if item.taskID == task.TaskID && item.value.UnitKey == unit.UnitKey && item.value.UnitVersionNo > base.UnitVersionNo {
+				base = item.value
+			}
+		}
+		if base.UnitVersionNo < 1 || bareSHA256(base.ContentHash) != bareSHA256(unitPatch.BaseContentHash) {
+			return RunOutputReceipt{}, ErrTaskVersionConflict
+		}
+		versionID := "review-unit-version-" + stableHash(identity)
+		value := ConfirmationUnitVersion{
+			UnitID: unit.UnitID, UnitVersionID: versionID, OutlineVersionID: outline.OutlineVersionID,
+			SourceRunID: run.RunID, UnitVersionNo: base.UnitVersionNo + 1, UnitKey: unit.UnitKey, Title: unit.Title,
+			Ordinal: unit.Ordinal, Markdown: strings.TrimSpace(unitPatch.ReplacementMarkdown),
+			ContentHash: hashText(strings.TrimSpace(unitPatch.ReplacementMarkdown)),
+			UnknownIDs:  append([]string(nil), unitPatch.PreservedUnknownIDs...), DependsOn: append([]string(nil), unit.DependsOn...),
+			ConfirmationStatus: string(UnitReviewing), CreatedAt: now,
+		}
+		s.confirmationVersions[versionID] = memoryConfirmationVersion{taskID: task.TaskID, taskVersion: task.Version + 1, value: value}
+		unit.Status = UnitReviewing
+		s.reviewUnits[task.TaskID][unit.UnitKey] = unit
+		task.Version++
+		task.Status = string(ReviewUnitReview)
+		task.UpdatedAt = now
+		s.tasks[task.TaskID] = task
+		payload, _ := json.Marshal(map[string]any{"unit_version_id": versionID, "unit_key": unit.UnitKey, "unit_version_no": value.UnitVersionNo, "task_version": task.Version})
+		s.appendTaskEventLocked(task.TenantID, task.OwnerID, task.TaskID, "review.unit_revision_materialized", payload)
+	}
+	receipt := RunOutputReceipt{OutputKey: output.OutputKey, ContentHash: copyOutput.ContentHash, TaskVersion: task.Version}
+	s.runOutputReceipts[identity] = receipt
+	return receipt, nil
 }
 
 func (s *MemoryStore) SubmitDraft(_ context.Context, lease LeaseContext, draftKey string, expectedTaskVersion int, patch []byte) (DraftReceipt, error) {
@@ -917,16 +1509,32 @@ func (s *MemoryStore) CreatePublishPreview(_ context.Context, tenantID, ownerID,
 		}
 		return s.publishPreviewResultLocked(value), nil
 	}
-	draft, ok := s.latestDraftLocked(taskID)
-	if !ok {
-		return PublishPreviewResult{}, ErrNotFound
-	}
-	for _, version := range s.confirmationVersions {
-		if version.value.DraftID == draft.draftID {
-			if version.value.ConfirmationStatus != "CONFIRMED" {
+	var publishContent []byte
+	var publishHash, publishSource string
+	var publishVersion int
+	if _, isV4 := s.reviewOutlines[taskID]; isV4 {
+		document, err := s.buildV4PublishDocumentLocked(task)
+		if err != nil {
+			return PublishPreviewResult{}, err
+		}
+		publishContent = append([]byte(nil), document.Content...)
+		publishHash = document.ContentHash
+		publishSource = document.SourceVersionID
+		publishVersion = int(s.reviewOutlines[taskID].Version)
+	} else {
+		draft, ok := s.latestDraftLocked(taskID)
+		if !ok {
+			return PublishPreviewResult{}, ErrNotFound
+		}
+		for _, version := range s.confirmationVersions {
+			if version.value.DraftID == draft.draftID && version.value.ConfirmationStatus != "CONFIRMED" {
 				return PublishPreviewResult{}, ErrInvalidRunStatus
 			}
 		}
+		publishContent = append([]byte(nil), draft.patch...)
+		publishHash = draft.patchHash
+		publishSource = draft.draftKey
+		publishVersion = draft.taskVersion
 	}
 	for _, existing := range s.publishes {
 		if existing.record.TaskID == taskID && (existing.record.Status == PublishPending || existing.record.Status == PublishRunning || existing.record.Status == PublishReconciling) {
@@ -941,15 +1549,15 @@ func (s *MemoryStore) CreatePublishPreview(_ context.Context, tenantID, ownerID,
 	value := memoryPublish{
 		record: PublishRecord{
 			PublishID: publishID, TaskID: taskID, Status: PublishPreview,
-			TaskVersion: task.Version, DraftVersion: draft.taskVersion, ContentHash: draft.patchHash,
+			TaskVersion: task.Version, DraftVersion: publishVersion, ContentHash: publishHash,
 			CreatedAt: now, UpdatedAt: now,
 		},
-		tenantID: tenantID, ownerID: ownerID, draftKey: draft.draftKey,
-		content: append([]byte(nil), draft.patch...), expiresAt: expiresAt, availableAt: now,
+		tenantID: tenantID, ownerID: ownerID, draftKey: publishSource,
+		content: publishContent, expiresAt: expiresAt, availableAt: now,
 	}
 	s.publishes[publishID] = value
 	s.publishPreviewIdempotency[idempotencyIdentity] = publishID
-	payload, _ := json.Marshal(map[string]any{"publish_id": publishID, "content_hash": draft.patchHash})
+	payload, _ := json.Marshal(map[string]any{"publish_id": publishID, "content_hash": publishHash})
 	s.appendTaskEventLocked(tenantID, ownerID, taskID, "publish.previewed", payload)
 	return s.publishPreviewResultLocked(value), nil
 }
@@ -1128,6 +1736,100 @@ func (s *MemoryStore) validateLeaseLocked(lease LeaseContext, now time.Time) err
 		return ErrLeaseLost
 	}
 	return nil
+}
+
+func ledgerVersionForPolicy(policy QueuePolicy) ExecutionLedgerVersion {
+	if policy.DefaultWorkflowVersion == WorkflowVersionV4 {
+		return policy.DefaultExecutionLedgerVersion
+	}
+	return ""
+}
+
+func (s *MemoryStore) initializeBudgetLocked(run AgentRun, now time.Time) {
+	if run.ExecutionLedgerVersion == ExecutionLedgerVersionV1 {
+		s.budgets[run.RunID] = memoryBudgetState{policy: s.policy.DefaultRunBudget, startedAt: now}
+	}
+}
+
+func (s *MemoryStore) validateLedgerMutationLocked(lease LeaseContext, entry LedgerEntry) error {
+	if err := s.validateLeaseLocked(lease, time.Now().UTC()); err != nil {
+		return err
+	}
+	run := s.runs[lease.RunID]
+	if run.ExecutionLedgerVersion != ExecutionLedgerVersionV1 {
+		return fmt.Errorf("%w: run does not use %s", ErrLedgerConflict, ExecutionLedgerVersionV1)
+	}
+	if entry.OperationKey == "" || entry.Operation == "" || entry.RequestHash == "" || !validLedgerKind(entry.EntryKind) || !nonNegativeBudget(entry.Reservation) || !nonNegativeBudget(entry.Consumption) {
+		return ErrInvalidPayload
+	}
+	return nil
+}
+
+func (s *MemoryStore) hasEvidenceRefLocked(runID, ref string) bool {
+	for _, item := range s.evidence {
+		if item.RunID == runID && EvidenceReference(EvidenceItem{SourceType: item.SourceType, SourceID: item.SourceID, Locator: item.Locator, ExcerptHash: item.ExcerptHash, Excerpt: item.Excerpt}) == ref {
+			return true
+		}
+	}
+	return false
+}
+
+func ledgerMapKey(runID, operationKey string) string { return runID + "\x00" + operationKey }
+
+func validLedgerKind(kind LedgerEntryKind) bool {
+	return kind == LedgerEntryModel || kind == LedgerEntryCapability || kind == LedgerEntryLocalTransition
+}
+
+func sameLedgerIdentity(left, right LedgerEntry) bool {
+	return left.OperationKey == right.OperationKey && left.EntryKind == right.EntryKind && left.Operation == right.Operation && left.RequestHash == right.RequestHash
+}
+
+func sameLedgerFinish(entry LedgerEntry, result LedgerFinish) bool {
+	return entry.Status == result.Status && entry.OutputArtifactKey == result.OutputArtifactKey && entry.OutputArtifactHash == result.OutputArtifactHash && entry.ErrorCategory == result.ErrorCategory && entry.Retryable == result.Retryable && entry.Consumption == result.Consumption && strings.Join(entry.EvidenceRefs, "\x00") == strings.Join(result.EvidenceRefs, "\x00")
+}
+
+func cloneLedgerEntry(entry LedgerEntry) LedgerEntry {
+	entry.EvidenceRefs = append([]string(nil), entry.EvidenceRefs...)
+	return entry
+}
+
+func addBudget(left, right BudgetDelta) BudgetDelta {
+	return BudgetDelta{ModelAttempts: left.ModelAttempts + right.ModelAttempts, ToolCalls: left.ToolCalls + right.ToolCalls, Iterations: left.Iterations + right.Iterations, Replans: left.Replans + right.Replans, Supplements: left.Supplements + right.Supplements, QualityRepairs: left.QualityRepairs + right.QualityRepairs, InputTokens: left.InputTokens + right.InputTokens, OutputTokens: left.OutputTokens + right.OutputTokens, ElapsedMS: left.ElapsedMS + right.ElapsedMS}
+}
+
+func subtractBudgetFloor(left, right BudgetDelta) BudgetDelta {
+	value := BudgetDelta{ModelAttempts: left.ModelAttempts - right.ModelAttempts, ToolCalls: left.ToolCalls - right.ToolCalls, Iterations: left.Iterations - right.Iterations, Replans: left.Replans - right.Replans, Supplements: left.Supplements - right.Supplements, QualityRepairs: left.QualityRepairs - right.QualityRepairs, InputTokens: left.InputTokens - right.InputTokens, OutputTokens: left.OutputTokens - right.OutputTokens, ElapsedMS: left.ElapsedMS - right.ElapsedMS}
+	fields := []*int64{&value.ModelAttempts, &value.ToolCalls, &value.Iterations, &value.Replans, &value.Supplements, &value.QualityRepairs, &value.InputTokens, &value.OutputTokens, &value.ElapsedMS}
+	for _, field := range fields {
+		if *field < 0 {
+			*field = 0
+		}
+	}
+	return value
+}
+
+func nonNegativeBudget(value BudgetDelta) bool {
+	return value.ModelAttempts >= 0 && value.ToolCalls >= 0 && value.Iterations >= 0 && value.Replans >= 0 && value.Supplements >= 0 && value.QualityRepairs >= 0 && value.InputTokens >= 0 && value.OutputTokens >= 0 && value.ElapsedMS >= 0
+}
+
+func budgetAllows(limit RunBudget, used, requested BudgetDelta) bool {
+	next := addBudget(used, requested)
+	return nonNegativeBudget(requested) && next.ModelAttempts <= limit.MaxModelAttempts && next.ToolCalls <= limit.MaxToolCalls && next.Iterations <= limit.MaxIterations && next.Replans <= limit.MaxReplans && next.Supplements <= limit.MaxSupplements && next.QualityRepairs <= limit.MaxQualityRepairs && next.InputTokens <= limit.MaxInputTokens && next.OutputTokens <= limit.MaxOutputTokens && next.ElapsedMS <= limit.MaxElapsedMS
+}
+
+func budgetOverage(limit RunBudget, consumed BudgetDelta) BudgetDelta {
+	return BudgetDelta{ModelAttempts: max64(0, consumed.ModelAttempts-limit.MaxModelAttempts), ToolCalls: max64(0, consumed.ToolCalls-limit.MaxToolCalls), Iterations: max64(0, consumed.Iterations-limit.MaxIterations), Replans: max64(0, consumed.Replans-limit.MaxReplans), Supplements: max64(0, consumed.Supplements-limit.MaxSupplements), QualityRepairs: max64(0, consumed.QualityRepairs-limit.MaxQualityRepairs), InputTokens: max64(0, consumed.InputTokens-limit.MaxInputTokens), OutputTokens: max64(0, consumed.OutputTokens-limit.MaxOutputTokens), ElapsedMS: max64(0, consumed.ElapsedMS-limit.MaxElapsedMS)}
+}
+
+func elapsedBudgetExhausted(budget memoryBudgetState, now time.Time) bool {
+	return now.Sub(budget.startedAt).Milliseconds() > budget.policy.MaxElapsedMS
+}
+
+func max64(left, right int64) int64 {
+	if left > right {
+		return left
+	}
+	return right
 }
 
 func (s *MemoryStore) taskRunIDsLocked(taskID string) map[string]bool {

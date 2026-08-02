@@ -6,14 +6,18 @@ import {
   agentEventUrl,
   ApiError,
   confirmAgentPublish,
+  confirmAgentOutline,
+  confirmAgentUnit,
   getAgentDraft,
   getAgentTask,
+  getAgentReview,
   listAgentAttempts,
   listAgentEvidence,
   listAgentPublishes,
   listAgentRuns,
   previewAgentPublish,
   retryAgentTask,
+  reopenAgentUnit,
   stopAgentRun,
 } from "@/lib/api/client";
 import type {
@@ -23,6 +27,7 @@ import type {
   DraftView,
   EvidenceView,
   PublishView,
+  ReviewView,
 } from "@/lib/api/agent-types";
 
 import { MarkdownView } from "./markdown-view";
@@ -36,24 +41,27 @@ export function AgentTaskWorkbench({ taskId }: { taskId: string }) {
   const [evidence, setEvidence] = useState<EvidenceView[]>([]);
   const [attempts, setAttempts] = useState<AttemptView[]>([]);
   const [publishes, setPublishes] = useState<PublishView[]>([]);
+  const [review, setReview] = useState<ReviewView | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
   const [connection, setConnection] = useState("连接中");
 
   const refresh = useCallback(async () => {
-    const [taskValue, runValue, evidenceValue, attemptValue, publishValue] =
+    const [taskValue, runValue, evidenceValue, attemptValue, publishValue, reviewValue] =
       await Promise.all([
         getAgentTask(taskId),
         listAgentRuns(taskId),
         listAgentEvidence(taskId),
         listAgentAttempts(taskId),
         listAgentPublishes(taskId),
+        getAgentReview(taskId),
       ]);
     setTask(taskValue.task);
     setRuns(runValue.items);
     setEvidence(evidenceValue.items);
     setAttempts(attemptValue.items);
     setPublishes(publishValue.items);
+    setReview(reviewValue);
     try {
       setDraft(await getAgentDraft(taskId));
     } catch (reason) {
@@ -99,9 +107,9 @@ export function AgentTaskWorkbench({ taskId }: { taskId: string }) {
 
   const latestRun = runs[0];
   const markdown =
-    typeof draft?.content === "string"
+    review?.document_markdown || (typeof draft?.content === "string"
       ? draft.content
-      : draft?.content.markdown ?? "";
+      : draft?.content.markdown ?? "");
   const latestPublish = publishes[0];
   const canRetry = latestRun && terminal.has(latestRun.status);
 
@@ -129,6 +137,29 @@ export function AgentTaskWorkbench({ taskId }: { taskId: string }) {
       if (!accepted) return;
       await confirmAgentPublish(taskId, preview);
     });
+  }
+
+  async function confirmOutline() {
+    if (!task || !review?.outline) return;
+    await runAction("confirm-outline", () =>
+      confirmAgentOutline(taskId, review.outline!.outline_version_id, task.version),
+    );
+  }
+
+  async function confirmUnit(unitVersionId: string) {
+    if (!task) return;
+    await runAction("confirm-unit", () =>
+      confirmAgentUnit(taskId, unitVersionId, task.version),
+    );
+  }
+
+  async function reopenUnit(unitVersionId: string) {
+    if (!task) return;
+    const feedback = window.prompt("请说明需要修改的内容：")?.trim();
+    if (!feedback) return;
+    await runAction("reopen-unit", () =>
+      reopenAgentUnit(taskId, unitVersionId, feedback, task.version),
+    );
   }
 
   if (!task && !error) return <div className="skeleton-workbench">正在加载 Agent 状态…</div>;
@@ -172,6 +203,38 @@ export function AgentTaskWorkbench({ taskId }: { taskId: string }) {
               )}
             </div>
           </div>
+          {review?.workflow_version === "agent-runtime.v4" && (
+            <div className="workflow-card" data-testid="review-workflow">
+              <div className="card-topline"><span>REVIEW WORKFLOW</span><i>{task.status}</i></div>
+              <h3>{review.outline?.candidate.title ?? "正在生成大纲"}</h3>
+              {review.available_actions.includes("CONFIRM_OUTLINE") && review.outline && (
+                <button className="primary-button" disabled={!!busy} onClick={() => void confirmOutline()}>
+                  确认大纲
+                </button>
+              )}
+              {review.units.map((unit) => (
+                <div key={unit.unit_id} className="review-unit-row">
+                  <p><strong>{unit.title}</strong> · {unit.confirmation_status}</p>
+                  {unit.confirmation_status === "REVIEWING" && (
+                    <button className="primary-button" disabled={!!busy} onClick={() => void confirmUnit(unit.unit_version_id)}>
+                      确认单元
+                    </button>
+                  )}
+                  {unit.confirmation_status === "CONFIRMED" && (
+                    <button className="secondary-button" disabled={!!busy} onClick={() => void reopenUnit(unit.unit_version_id)}>
+                      重新打开
+                    </button>
+                  )}
+                </div>
+              ))}
+              {review.full_review && (
+                <p>完整审阅：{review.full_review.disposition}</p>
+              )}
+              {!review.publish_readiness.ready && review.publish_readiness.reasons.length > 0 && (
+                <p>发布等待：{review.publish_readiness.reasons.join("、")}</p>
+              )}
+            </div>
+          )}
           <div className="workflow-card">
             <div className="card-topline"><span>MODEL ATTEMPTS</span><i>{attempts.length}</i></div>
             {attempts.length === 0 ? <p>等待模型调用。</p> : attempts.map((attempt) => (
@@ -196,17 +259,17 @@ export function AgentTaskWorkbench({ taskId }: { taskId: string }) {
             {safeFeishuURL(latestPublish?.safe_url) && (
               <a href={safeFeishuURL(latestPublish?.safe_url)} target="_blank" rel="noreferrer">打开文档</a>
             )}
-            <button className="secondary-button" disabled={!draft || !!busy} onClick={() => void publish()}>
+            <button className="secondary-button" disabled={!review?.publish_readiness.ready || !!busy} onClick={() => void publish()}>
               {busy === "publish" ? "提交中…" : "发布到飞书"}
             </button>
           </div>
         </aside>
         <section className="document-column">
-          <div className="section-title"><span>03</span><h2>Working Draft</h2></div>
+          <div className="section-title"><span>03</span><h2>{review?.workflow_version === "agent-runtime.v4" ? "Review Document" : "Working Draft"}</h2></div>
           {markdown ? (
             <article className="document-paper">
               <MarkdownView content={markdown} />
-              <div className="document-hash"><span>CONTENT HASH</span><code>{draft?.draft.content_hash}</code></div>
+              <div className="document-hash"><span>CONTENT HASH</span><code>{review?.full_review?.content_hash ?? draft?.draft.content_hash}</code></div>
             </article>
           ) : (
             <div className="document-empty"><div className="document-empty-mark">¶</div><h2>Agent 正在生成 Draft</h2><p>页面会自动恢复连接并刷新已持久化进度。</p></div>

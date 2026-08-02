@@ -1,4 +1,6 @@
-limit_req_zone $binary_remote_addr zone=prd_api:10m rate=10r/s;
+limit_req_zone $binary_remote_addr zone=prd_public:10m rate=5r/s;
+limit_req_zone $binary_remote_addr zone=prd_api:10m rate=5r/s;
+limit_conn_zone $binary_remote_addr zone=prd_connections:10m;
 
 server {
     listen 8080;
@@ -18,6 +20,11 @@ server {
     server_tokens off;
     client_max_body_size 256k;
     large_client_header_buffers 2 8k;
+    limit_req_status 429;
+    limit_req_log_level warn;
+    limit_conn_status 429;
+    limit_conn_log_level warn;
+    limit_conn prd_connections 20;
 
     auth_basic "PRD Agent";
     auth_basic_user_file /run/secrets/basic_auth_htpasswd;
@@ -29,7 +36,7 @@ server {
     }
 
     location /backend/ {
-        limit_req zone=prd_api burst=20 nodelay;
+        limit_req zone=prd_api burst=10 nodelay;
         proxy_pass http://go-api:8080/;
         proxy_http_version 1.1;
         proxy_set_header Host $http_host;
@@ -42,6 +49,7 @@ server {
     }
 
     location / {
+        limit_req zone=prd_public burst=30 nodelay;
         proxy_pass http://web:3000;
         proxy_http_version 1.1;
         proxy_set_header Host $http_host;

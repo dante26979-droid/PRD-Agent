@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -20,7 +21,7 @@ type rowQuerier interface {
 
 func (s *PostgresStore) GetRun(ctx context.Context, runID string) (runcontrol.AgentRun, error) {
 	var run runcontrol.AgentRun
-	err := scanAgentRun(s.pool.QueryRow(ctx, `SELECT run_id, task_id, tenant_id, owner_id, status, queue_slot_acquired, attempt_count, COALESCE(lease_id,''), COALESCE(worker_id,''), fencing_token, COALESCE(lease_expires_at,'epoch'::timestamptz), created_at, updated_at FROM go_agent_runs WHERE run_id=$1`, runID), &run)
+	err := scanAgentRun(s.pool.QueryRow(ctx, `SELECT run_id, task_id, tenant_id, owner_id, workflow_version, COALESCE(execution_ledger_version,''), status, queue_slot_acquired, attempt_count, COALESCE(lease_id,''), COALESCE(worker_id,''), fencing_token, COALESCE(lease_expires_at,'epoch'::timestamptz), created_at, updated_at FROM go_agent_runs WHERE run_id=$1`, runID), &run)
 	return run, mapNotFound(err)
 }
 
@@ -34,7 +35,7 @@ func (s *PostgresStore) GetRunContext(ctx context.Context, lease runcontrol.Leas
 		return runcontrol.AgentRunInput{}, err
 	}
 	var run runcontrol.AgentRun
-	if err := scanAgentRun(tx.QueryRow(ctx, `SELECT run_id, task_id, tenant_id, owner_id, status, queue_slot_acquired, attempt_count, COALESCE(lease_id,''), COALESCE(worker_id,''), fencing_token, COALESCE(lease_expires_at,'epoch'::timestamptz), created_at, updated_at FROM go_agent_runs WHERE run_id=$1`, lease.RunID), &run); err != nil {
+	if err := scanAgentRun(tx.QueryRow(ctx, `SELECT run_id, task_id, tenant_id, owner_id, workflow_version, COALESCE(execution_ledger_version,''), status, queue_slot_acquired, attempt_count, COALESCE(lease_id,''), COALESCE(worker_id,''), fencing_token, COALESCE(lease_expires_at,'epoch'::timestamptz), created_at, updated_at FROM go_agent_runs WHERE run_id=$1`, lease.RunID), &run); err != nil {
 		return runcontrol.AgentRunInput{}, mapNotFound(err)
 	}
 	var message string
@@ -44,19 +45,29 @@ func (s *PostgresStore) GetRunContext(ctx context.Context, lease runcontrol.Leas
 		return runcontrol.AgentRunInput{}, mapNotFound(err)
 	}
 	input := runcontrol.AgentRunInput{
-		Run: run, TaskMessage: message, WorkflowVersion: "agent-runtime.v1", TaskVersion: taskVersion,
+		Run: run, TaskMessage: message, WorkflowVersion: string(run.WorkflowVersion), TaskVersion: taskVersion,
 		RepositoryBindingID: repositoryBindingID, RepositoryRevision: repositoryRevision,
 	}
-	var checkpoint []byte
-	if err := tx.QueryRow(ctx, `SELECT checkpoint_blob FROM go_run_checkpoints WHERE run_id=$1 ORDER BY sequence DESC LIMIT 1`, lease.RunID).Scan(&checkpoint); err == nil {
-		input.Checkpoint = append([]byte(nil), checkpoint...)
-		if err := tx.QueryRow(ctx, `SELECT sequence FROM go_run_checkpoints WHERE run_id=$1 ORDER BY sequence DESC LIMIT 1`, lease.RunID).Scan(&input.CheckpointSequence); err != nil {
-			return runcontrol.AgentRunInput{}, err
-		}
+	var assignment runcontrol.RolloutAssignment
+	if err := tx.QueryRow(ctx, `SELECT authoritative_workflow_version,evaluation_mode,COALESCE(shadow_workflow_version,''),policy_version,assignment_hash FROM go_agent_rollout_assignments WHERE run_id=$1`, lease.RunID).Scan(
+		&assignment.AuthoritativeWorkflowVersion, &assignment.EvaluationMode,
+		&assignment.ShadowWorkflowVersion, &assignment.PolicyVersion, &assignment.AssignmentHash,
+	); err == nil {
+		input.EvaluationMode = assignment.EvaluationMode
+		input.AuthoritativeWorkflow = assignment.AuthoritativeWorkflowVersion
+		input.ShadowWorkflow = assignment.ShadowWorkflowVersion
+		input.CandidatePolicyVersion = assignment.PolicyVersion
+		input.AssignmentHash = assignment.AssignmentHash
 	} else if !errors.Is(err, pgx.ErrNoRows) {
 		return runcontrol.AgentRunInput{}, err
 	}
-	evidenceRows, err := tx.Query(ctx, `SELECT source_type, source_id, locator, excerpt_hash, excerpt FROM go_evidence WHERE run_id=$1 ORDER BY created_at, evidence_id LIMIT 100`, lease.RunID)
+	var checkpoint []byte
+	if err := tx.QueryRow(ctx, `SELECT checkpoint_blob,sequence,content_hash FROM go_run_checkpoints WHERE run_id=$1 ORDER BY sequence DESC LIMIT 1`, lease.RunID).Scan(&checkpoint, &input.CheckpointSequence, &input.ResumeSummary.CheckpointContentHash); err == nil {
+		input.Checkpoint = append([]byte(nil), checkpoint...)
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return runcontrol.AgentRunInput{}, err
+	}
+	evidenceRows, err := tx.Query(ctx, `SELECT source_type, source_id, locator, excerpt_hash, excerpt FROM go_evidence WHERE run_id=$1 ORDER BY created_at, evidence_id`, lease.RunID)
 	if err != nil {
 		return runcontrol.AgentRunInput{}, err
 	}
@@ -67,13 +78,15 @@ func (s *PostgresStore) GetRunContext(ctx context.Context, lease runcontrol.Leas
 			return runcontrol.AgentRunInput{}, err
 		}
 		input.ResumeEvidence = append(input.ResumeEvidence, item)
+		input.ResumeSummary.EvidenceRefs = append(input.ResumeSummary.EvidenceRefs, runcontrol.EvidenceReference(item))
 	}
 	if err := evidenceRows.Err(); err != nil {
 		evidenceRows.Close()
 		return runcontrol.AgentRunInput{}, err
 	}
 	evidenceRows.Close()
-	artifactRows, err := tx.Query(ctx, `SELECT artifact_key, artifact_type, generation, request_hash, content_hash, content FROM go_run_artifacts WHERE run_id=$1 AND expires_at>$2 ORDER BY artifact_key LIMIT 50`, lease.RunID, time.Now().UTC())
+	input.ResumeSummary.EvidenceCount = int64(len(input.ResumeEvidence))
+	artifactRows, err := tx.Query(ctx, `SELECT artifact_key, artifact_type, generation, request_hash, content_hash, content FROM go_run_artifacts WHERE run_id=$1 AND expires_at>$2 ORDER BY artifact_key`, lease.RunID, time.Now().UTC())
 	if err != nil {
 		return runcontrol.AgentRunInput{}, err
 	}
@@ -84,15 +97,25 @@ func (s *PostgresStore) GetRunContext(ctx context.Context, lease runcontrol.Leas
 			return runcontrol.AgentRunInput{}, err
 		}
 		input.ResumeArtifacts = append(input.ResumeArtifacts, item)
+		input.ResumeSummary.Artifacts = append(input.ResumeSummary.Artifacts, runcontrol.RunArtifactIdentity{ArtifactKey: item.ArtifactKey, ArtifactType: item.ArtifactType, Generation: item.Generation, RequestHash: item.RequestHash, ContentHash: item.ContentHash})
 	}
 	if err := artifactRows.Err(); err != nil {
 		artifactRows.Close()
 		return runcontrol.AgentRunInput{}, err
 	}
 	artifactRows.Close()
+	input.ResumeSummary.ArtifactCount = int64(len(input.ResumeArtifacts))
+	if err := tx.QueryRow(ctx, `SELECT COUNT(*) FROM go_model_attempts WHERE run_id=$1 AND status<>'PLANNED'`, lease.RunID).Scan(&input.ResumeSummary.TerminalModelAttemptCount); err != nil {
+		return runcontrol.AgentRunInput{}, err
+	}
 	var resume runcontrol.SubmittedDraftReceipt
 	if err := tx.QueryRow(ctx, `SELECT draft_key, patch_hash, task_version, patch FROM go_working_draft_versions WHERE run_id=$1 ORDER BY task_version DESC LIMIT 1`, lease.RunID).Scan(&resume.DraftKey, &resume.ContentHash, &resume.TaskVersion, &resume.Content); err == nil {
 		input.ResumeDraft = &resume
+		copy := resume
+		input.SubmittedDraft = &copy
+		if run.WorkflowVersion == runcontrol.WorkflowVersionV4 {
+			input.TaskVersion = resume.TaskVersion - 1
+		}
 	} else if !errors.Is(err, pgx.ErrNoRows) {
 		return runcontrol.AgentRunInput{}, err
 	}
@@ -108,6 +131,19 @@ func (s *PostgresStore) GetRunContext(ctx context.Context, lease runcontrol.Leas
 			return runcontrol.AgentRunInput{}, err
 		}
 		input.ResumeDraft = &resume
+		copy := resume
+		input.BaseDraft = &copy
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return runcontrol.AgentRunInput{}, err
+	}
+	if run.ExecutionLedgerVersion != "" {
+		if err := loadLedgerContext(ctx, tx, &input); err != nil {
+			return runcontrol.AgentRunInput{}, err
+		}
+	}
+	if unitScope, err := loadRunUnitScope(ctx, tx, lease.RunID); err == nil {
+		input.RunPurpose = unitScope.Purpose
+		input.UnitScope = unitScope
 	} else if !errors.Is(err, pgx.ErrNoRows) {
 		return runcontrol.AgentRunInput{}, err
 	}
@@ -135,6 +171,45 @@ func (s *PostgresStore) SaveRunArtifact(ctx context.Context, lease runcontrol.Le
 	defer tx.Rollback(ctx)
 	if err := assertLease(ctx, tx, lease, time.Now().UTC()); err != nil {
 		return runcontrol.RunArtifactReceipt{}, err
+	}
+	if artifact.ArtifactType == "SHADOW_EVALUATION" {
+		var assignment runcontrol.RolloutAssignment
+		if err := tx.QueryRow(ctx, `SELECT authoritative_workflow_version,evaluation_mode,COALESCE(shadow_workflow_version,''),cohort,policy_version,assignment_reason,assignment_hash FROM go_agent_rollout_assignments WHERE run_id=$1`, lease.RunID).Scan(
+			&assignment.AuthoritativeWorkflowVersion, &assignment.EvaluationMode, &assignment.ShadowWorkflowVersion,
+			&assignment.Cohort, &assignment.PolicyVersion, &assignment.AssignmentReason, &assignment.AssignmentHash,
+		); err != nil {
+			return runcontrol.RunArtifactReceipt{}, mapNotFound(err)
+		}
+		trace, err := runcontrol.ParseShadowEvaluationArtifact(lease.RunID, artifact, assignment)
+		if err != nil {
+			return runcontrol.RunArtifactReceipt{}, err
+		}
+		persisted := runcontrol.PersistedAuthoritativeResult{RunID: lease.RunID}
+		if err := tx.QueryRow(ctx, `SELECT task_id FROM go_agent_runs WHERE run_id=$1`, lease.RunID).Scan(&persisted.TaskID); err != nil {
+			return runcontrol.RunArtifactReceipt{}, mapNotFound(err)
+		}
+		if trace.OutputKey != "" {
+			if err := tx.QueryRow(ctx, `SELECT output_key,output_kind,content_hash FROM go_run_outputs WHERE run_id=$1 AND output_key=$2`, lease.RunID, trace.OutputKey).Scan(
+				&persisted.OutputKey, &persisted.OutputKind, &persisted.OutputContentHash,
+			); err != nil {
+				if errors.Is(err, pgx.ErrNoRows) {
+					return runcontrol.RunArtifactReceipt{}, fmt.Errorf("%w: shadow output was not persisted", runcontrol.ErrInvalidPayload)
+				}
+				return runcontrol.RunArtifactReceipt{}, err
+			}
+		} else {
+			if err := tx.QueryRow(ctx, `SELECT draft_key,patch_hash FROM go_working_draft_versions WHERE run_id=$1 AND draft_key=$2`, lease.RunID, trace.DraftKey).Scan(
+				&persisted.DraftKey, &persisted.DraftContentHash,
+			); err != nil {
+				if errors.Is(err, pgx.ErrNoRows) {
+					return runcontrol.RunArtifactReceipt{}, fmt.Errorf("%w: shadow draft was not persisted", runcontrol.ErrInvalidPayload)
+				}
+				return runcontrol.RunArtifactReceipt{}, err
+			}
+		}
+		if err := runcontrol.ValidatePersistedAuthoritativeTrace(trace, persisted); err != nil {
+			return runcontrol.RunArtifactReceipt{}, err
+		}
 	}
 	var existingRequestHash, existingContentHash string
 	err = tx.QueryRow(ctx, `SELECT request_hash, content_hash FROM go_run_artifacts WHERE run_id=$1 AND artifact_key=$2 FOR UPDATE`, lease.RunID, artifact.ArtifactKey).Scan(&existingRequestHash, &existingContentHash)
@@ -534,7 +609,7 @@ func assertLease(ctx context.Context, query rowQuerier, lease runcontrol.LeaseCo
 }
 
 func scanAgentRun(row pgx.Row, run *runcontrol.AgentRun) error {
-	return row.Scan(&run.RunID, &run.TaskID, &run.TenantID, &run.OwnerID, &run.Status, &run.QueueSlotAcquired, &run.AttemptCount, &run.LeaseID, &run.WorkerID, &run.FencingToken, &run.LeaseExpiresAt, &run.CreatedAt, &run.UpdatedAt)
+	return row.Scan(&run.RunID, &run.TaskID, &run.TenantID, &run.OwnerID, &run.WorkflowVersion, &run.ExecutionLedgerVersion, &run.Status, &run.QueueSlotAcquired, &run.AttemptCount, &run.LeaseID, &run.WorkerID, &run.FencingToken, &run.LeaseExpiresAt, &run.CreatedAt, &run.UpdatedAt)
 }
 
 func mapNotFound(err error) error {

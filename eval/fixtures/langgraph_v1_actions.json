@@ -1,0 +1,99 @@
+{
+  "fixture_version": "langgraph-v1-actions.2026-07-31",
+  "draft_template": "# 需求摘要\n\n{{title}}：{{requirement}}\n\n## 范围边界\n\n范围内：完成需求描述的变更。范围外：{{context}} 中未明确的信息保持未知。\n\n## 业务规则\n\n仅采用固定需求与本次调查获得的信息，不补充未经验证的当前实现。\n\n## 流程\n\n当用户提交请求时，系统应校验输入并返回明确结果。\n\n## 验收标准\n\n当输入满足 {{requirement}} 的条件时，系统应返回预期结果；异常输入应被拒绝。\n\n## 异常处理\n\n调查未覆盖的信息标记为未知，不阻塞人工评审。\n\n## 待确认事项\n\n需要确认范围外行为及历史资料冲突。",
+  "cases": {
+    "case-001": {
+      "required_coverage": [],
+      "actions": []
+    },
+    "case-002": {
+      "required_coverage": [],
+      "actions": []
+    },
+    "case-003": {
+      "required_coverage": ["repository_evidence"],
+      "actions": [
+        {
+          "query": "order amount validation",
+          "target_coverage": "repository_evidence",
+          "hits": [{"path": "src/api/validators.py", "line": 1, "snippet": "amount must be greater than zero"}]
+        }
+      ]
+    },
+    "case-004": {
+      "required_coverage": ["repository_evidence"],
+      "actions": [
+        {
+          "query": "currency field type",
+          "target_coverage": "repository_evidence",
+          "hits": [{"path": "src/domain/order.py", "line": 1, "snippet": "currency supports CNY and USD"}]
+        }
+      ]
+    },
+    "case-005": {
+      "required_coverage": ["repository_evidence"],
+      "actions": [
+        {
+          "query": "order cancel status",
+          "target_coverage": "repository_evidence",
+          "hits": [{"path": "src/domain/order.py", "line": 1, "snippet": "pending orders may be cancelled"}]
+        }
+      ]
+    },
+    "case-006": {
+      "required_coverage": ["repository_evidence"],
+      "actions": [
+        {
+          "query": "order cancel permission",
+          "target_coverage": "repository_evidence",
+          "hits": [{"path": "src/auth/permissions.py", "line": 1, "snippet": "operator and finance roles"}]
+        }
+      ]
+    },
+    "case-007": {
+      "required_coverage": ["repository_evidence"],
+      "actions": [
+        {
+          "query": "order amount database constraint",
+          "target_coverage": "repository_evidence",
+          "hits": [{"path": "db/schema.sql", "line": 1, "snippet": "CHECK amount greater than zero"}]
+        }
+      ]
+    },
+    "case-008": {
+      "required_coverage": ["repository_evidence"],
+      "actions": [
+        {
+          "query": "paid order current behavior",
+          "target_coverage": "repository_evidence",
+          "hits": [{"path": "src/domain/order.py", "line": 1, "snippet": "paid status is immutable"}]
+        }
+      ]
+    },
+    "case-009": {
+      "required_coverage": ["repository_evidence"],
+      "actions": [
+        {
+          "query": "refund consumer",
+          "target_coverage": "repository_evidence",
+          "hits": []
+        }
+      ]
+    },
+    "case-010": {
+      "required_coverage": ["repository_structure", "tests"],
+      "actions": [
+        {
+          "query": "order amount implementation",
+          "target_coverage": "repository_structure",
+          "hits": [{"path": "src/domain/order.py", "line": 1, "snippet": "order amount field"}]
+        },
+        {
+          "query": "order amount tests",
+          "target_coverage": "tests",
+          "hits": [{"path": "tests/test_order.py", "line": 1, "snippet": "amount validation tests"}]
+        }
+      ]
+    }
+  }
+}

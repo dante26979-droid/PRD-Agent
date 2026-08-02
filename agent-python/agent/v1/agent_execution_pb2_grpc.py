@@ -74,6 +74,11 @@ class AgentExecutionServiceStub:
                 request_serializer=agent_dot_v1_dot_agent__execution__pb2.SubmitDraftRequest.SerializeToString,
                 response_deserializer=agent_dot_v1_dot_agent__execution__pb2.SubmitDraftResponse.FromString,
                 _registered_method=True)
+        self.SubmitRunOutput = channel.unary_unary(
+                '/agent.v1.AgentExecutionService/SubmitRunOutput',
+                request_serializer=agent_dot_v1_dot_agent__execution__pb2.SubmitRunOutputRequest.SerializeToString,
+                response_deserializer=agent_dot_v1_dot_agent__execution__pb2.SubmitRunOutputResponse.FromString,
+                _registered_method=True)
         self.CompleteRun = channel.unary_unary(
                 '/agent.v1.AgentExecutionService/CompleteRun',
                 request_serializer=agent_dot_v1_dot_agent__execution__pb2.CompleteRunRequest.SerializeToString,
@@ -137,6 +142,12 @@ class AgentExecutionServiceServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def SubmitRunOutput(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def CompleteRun(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
@@ -191,6 +202,11 @@ def add_AgentExecutionServiceServicer_to_server(servicer, server):
                     servicer.SubmitDraft,
                     request_deserializer=agent_dot_v1_dot_agent__execution__pb2.SubmitDraftRequest.FromString,
                     response_serializer=agent_dot_v1_dot_agent__execution__pb2.SubmitDraftResponse.SerializeToString,
+            ),
+            'SubmitRunOutput': grpc.unary_unary_rpc_method_handler(
+                    servicer.SubmitRunOutput,
+                    request_deserializer=agent_dot_v1_dot_agent__execution__pb2.SubmitRunOutputRequest.FromString,
+                    response_serializer=agent_dot_v1_dot_agent__execution__pb2.SubmitRunOutputResponse.SerializeToString,
             ),
             'CompleteRun': grpc.unary_unary_rpc_method_handler(
                     servicer.CompleteRun,
@@ -419,6 +435,33 @@ class AgentExecutionService:
             '/agent.v1.AgentExecutionService/SubmitDraft',
             agent_dot_v1_dot_agent__execution__pb2.SubmitDraftRequest.SerializeToString,
             agent_dot_v1_dot_agent__execution__pb2.SubmitDraftResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def SubmitRunOutput(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/agent.v1.AgentExecutionService/SubmitRunOutput',
+            agent_dot_v1_dot_agent__execution__pb2.SubmitRunOutputRequest.SerializeToString,
+            agent_dot_v1_dot_agent__execution__pb2.SubmitRunOutputResponse.FromString,
             options,
             channel_credentials,
             insecure,

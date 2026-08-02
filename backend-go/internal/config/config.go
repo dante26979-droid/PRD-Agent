@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/dante26979-droid/prd-agent/backend-go/internal/runcontrol"
 )
 
 type Config struct {
@@ -46,6 +48,9 @@ type Config struct {
 	ShutdownTimeout          time.Duration
 	MaintenanceInterval      time.Duration
 	LeaseTTL                 time.Duration
+	DefaultWorkflowVersion   string
+	AllowedWorkflowVersions  []string
+	AgentRolloutPolicy       *runcontrol.RolloutPolicy
 }
 
 func Load() (Config, error) {
@@ -162,6 +167,22 @@ func LoadFor(role string) (Config, error) {
 		}
 	}
 	endpoints := splitCSV(os.Getenv("PRD_AGENT_GO_AGENT_RPC_WORKER_ENDPOINTS"))
+	defaultWorkflowVersion := env("PRD_AGENT_DEFAULT_WORKFLOW_VERSION", "agent-runtime.v1")
+	allowedWorkflowVersions := splitCSV(env("PRD_AGENT_ALLOWED_WORKFLOW_VERSIONS", "agent-runtime.v1,agent-runtime.v4"))
+	allowed := false
+	for _, version := range allowedWorkflowVersions {
+		if version != "agent-runtime.v1" && version != "agent-runtime.v4" {
+			return Config{}, fmt.Errorf("unsupported allowed workflow version %q", version)
+		}
+		allowed = allowed || version == defaultWorkflowVersion
+	}
+	if !allowed {
+		return Config{}, fmt.Errorf("default workflow version must be included in allowed workflow versions")
+	}
+	rolloutPolicy, err := loadRolloutPolicy(defaultWorkflowVersion)
+	if err != nil {
+		return Config{}, err
+	}
 	var agentRPCToken string
 	if len(endpoints) > 0 || role == "capability" {
 		agentRPCToken, err = secretEnv("PRD_AGENT_AGENT_RPC_TOKEN")
@@ -207,6 +228,9 @@ func LoadFor(role string) (Config, error) {
 		ShutdownTimeout:          10 * time.Second,
 		MaintenanceInterval:      time.Duration(maintenanceInterval) * time.Second,
 		LeaseTTL:                 time.Duration(leaseTTL) * time.Second,
+		DefaultWorkflowVersion:   defaultWorkflowVersion,
+		AllowedWorkflowVersions:  allowedWorkflowVersions,
+		AgentRolloutPolicy:       rolloutPolicy,
 	}
 	if environment == "staging" || environment == "production" {
 		if err := requireSecretFileOnly("PRD_AGENT_DATABASE_DSN", cfg.DatabaseDSN, environment); err != nil {
@@ -372,4 +396,49 @@ func positiveInt(name string, fallback int) (int, error) {
 		return 0, fmt.Errorf("%s must be a positive integer", name)
 	}
 	return parsed, nil
+}
+
+func loadRolloutPolicy(defaultWorkflowVersion string) (*runcontrol.RolloutPolicy, error) {
+	policyVersion := strings.TrimSpace(os.Getenv("PRD_AGENT_ROLLOUT_POLICY_VERSION"))
+	if policyVersion == "" {
+		return nil, nil
+	}
+	canaryBasisPoints, err := nonNegativeInt("PRD_AGENT_V4_CANARY_BASIS_POINTS", 0)
+	if err != nil {
+		return nil, err
+	}
+	if canaryBasisPoints > 10000 {
+		return nil, fmt.Errorf("PRD_AGENT_V4_CANARY_BASIS_POINTS cannot exceed 10000")
+	}
+	shadow, err := boolEnv("PRD_AGENT_V4_SHADOW", false)
+	if err != nil {
+		return nil, err
+	}
+	return &runcontrol.RolloutPolicy{
+		PolicyVersion:     policyVersion,
+		DefaultWorkflow:   runcontrol.WorkflowVersion(defaultWorkflowVersion),
+		CanaryBasisPoints: canaryBasisPoints,
+		Shadow:            shadow,
+		EmergencyDeny:     identitySet(os.Getenv("PRD_AGENT_V4_EMERGENCY_DENY_IDENTITIES")),
+		ExplicitV4Tasks:   identitySet(os.Getenv("PRD_AGENT_V4_EXPLICIT_TASK_IDS")),
+		InternalOwners:    identitySet(os.Getenv("PRD_AGENT_V4_INTERNAL_IDENTITIES")),
+	}, nil
+}
+
+func nonNegativeInt(name string, fallback int) (int, error) {
+	value := env(name, strconv.Itoa(fallback))
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed < 0 {
+		return 0, fmt.Errorf("%s must be a non-negative integer", name)
+	}
+	return parsed, nil
+}
+
+func identitySet(value string) map[string]bool {
+	items := splitCSV(value)
+	result := make(map[string]bool, len(items))
+	for _, item := range items {
+		result[item] = true
+	}
+	return result
 }

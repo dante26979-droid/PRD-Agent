@@ -24,6 +24,7 @@ class GroundingFinding:
     status: GroundingStatus
     evidence_refs: tuple[str, ...]
     reason_code: str
+    fact_ids: tuple[str, ...] = ()
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -31,4 +32,5 @@ class GroundingFinding:
             "status": self.status.value,
             "evidence_refs": list(self.evidence_refs),
             "reason_code": self.reason_code,
+            "fact_ids": list(self.fact_ids),
         }

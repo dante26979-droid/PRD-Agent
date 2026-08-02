@@ -48,7 +48,7 @@ prd-agent-migrate = "prd_agent.production.migrate:main"
 where = ["src"]
 
 [tool.pytest.ini_options]
-pythonpath = ["src"]
+pythonpath = ["src", "agent-python"]
 testpaths = ["tests"]
 markers = [
     "live_llm: opt-in tests that call the configured external LLM API",

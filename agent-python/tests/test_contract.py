@@ -41,6 +41,40 @@ def test_contract_preserves_unknown_forward_compatible_field():
     assert decoded.checkpoint_sequence == 3
 
 
+def test_source_authority_and_evidence_provenance_round_trip() -> None:
+    original = proto.AgentRunInput(
+        run_id="run-1",
+        allowed_source_authorities=[
+            proto.SourceAuthority(
+                source_kind="github",
+                binding_id="binding-1",
+                source_id="binding-1",
+                source_version="a" * 40,
+                access_scope_hash="sha256:scope",
+            )
+        ],
+        resume_evidence=[
+            proto.EvidenceItem(
+                source_type="github",
+                source_id="binding-1",
+                locator="github://binding-1@revision/path#L1",
+                excerpt_hash="sha256:excerpt",
+                excerpt="value",
+                source_kind="github",
+                binding_id="binding-1",
+                source_version="a" * 40,
+                access_scope_hash="sha256:scope",
+                outcome_kind="HIT",
+            )
+        ],
+    )
+
+    decoded = proto.AgentRunInput.FromString(original.SerializeToString())
+
+    assert decoded.allowed_source_authorities[0].source_version == "a" * 40
+    assert decoded.resume_evidence[0].outcome_kind == "HIT"
+
+
 def test_agent_worker_contract_round_trips_stream_event():
 	original = worker.ExecuteRunResponse(
 		dispatch_id="dispatch-1",

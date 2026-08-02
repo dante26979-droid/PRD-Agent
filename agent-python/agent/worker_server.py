@@ -11,6 +11,7 @@ from typing import Callable
 import grpc
 
 from agent.v1 import agent_worker_pb2 as worker
+from agent.v1 import agent_execution_pb2 as execution_proto
 from agent.v1 import agent_worker_pb2_grpc as worker_rpc
 
 from .cancellation import AgentCancelled, CancellationToken
@@ -18,8 +19,8 @@ from .capability import CapabilityError
 from .checkpoint import CheckpointError
 from .context import Lease, RunContext
 from .model import ModelApiError
-from .result import AgentResult
-from .runtime import RuntimeEventSink
+from .result import AgentResult, SubmissionDisposition
+from .runtime import RuntimeEventSink, ShadowArtifactModule
 
 
 CONTRACT_VERSION = "agent-execution.v2"
@@ -61,6 +62,11 @@ class AgentWorkerServer(worker_rpc.AgentWorkerServiceServicer):
         max_evidence_items: int = 100,
         service_token: str | None = None,
         event_ack_timeout_seconds: float = 0,
+        supported_workflow_versions: tuple[str, ...] = (
+            "agent-runtime.v1",
+            "agent-runtime.v4",
+        ),
+        supported_execution_ledger_versions: tuple[str, ...] = ("run-ledger.v1",),
     ) -> None:
         if not worker_id:
             raise ValueError("worker_id is required")
@@ -75,6 +81,8 @@ class AgentWorkerServer(worker_rpc.AgentWorkerServiceServicer):
             raise ValueError("Agent result limits must be positive")
         if event_ack_timeout_seconds < 0:
             raise ValueError("event acknowledgement timeout cannot be negative")
+        if not supported_workflow_versions:
+            raise ValueError("supported workflow versions are required")
         self._loop = loop
         self._worker_id = worker_id
         self._max_inflight = max_inflight
@@ -86,6 +94,8 @@ class AgentWorkerServer(worker_rpc.AgentWorkerServiceServicer):
         self._max_evidence_items = max_evidence_items
         self._service_token = service_token
         self._event_ack_timeout_seconds = event_ack_timeout_seconds
+        self._supported_workflow_versions = frozenset(supported_workflow_versions)
+        self._supported_execution_ledger_versions = frozenset(supported_execution_ledger_versions)
         self._slots = threading.BoundedSemaphore(max_inflight)
         self._active: dict[str, CancellationToken] = {}
         self._active_lock = threading.Lock()
@@ -100,6 +110,12 @@ class AgentWorkerServer(worker_rpc.AgentWorkerServiceServicer):
             context.abort(grpc.StatusCode.PERMISSION_DENIED, "worker identity mismatch")
         if request.lease.run_id != request.run_id or request.lease.worker_id != self._worker_id:
             context.abort(grpc.StatusCode.INVALID_ARGUMENT, "lease does not match execution request")
+        if request.input.workflow_version not in self._supported_workflow_versions:
+            context.abort(grpc.StatusCode.FAILED_PRECONDITION, "workflow version is unsupported")
+        if request.input.execution_ledger_version and request.input.execution_ledger_version not in self._supported_execution_ledger_versions:
+            context.abort(grpc.StatusCode.FAILED_PRECONDITION, "execution ledger version is unsupported")
+        if bool(request.input.execution_ledger_version) != request.input.HasField("run_budget"):
+            context.abort(grpc.StatusCode.FAILED_PRECONDITION, "ledger run budget contract is incomplete")
         if not self._slots.acquire(blocking=False):
             context.abort(grpc.StatusCode.RESOURCE_EXHAUSTED, "worker is at capacity")
 
@@ -143,6 +159,41 @@ class AgentWorkerServer(worker_rpc.AgentWorkerServiceServicer):
                     if request.input.HasField("resume_draft")
                     else None
                 ),
+                base_draft=(
+                    request.input.base_draft
+                    if request.input.HasField("base_draft")
+                    else None
+                ),
+                submitted_draft=(
+                    request.input.submitted_draft
+                    if request.input.HasField("submitted_draft")
+                    else None
+                ),
+                resume_summary=(
+                    request.input.resume_summary
+                    if request.input.HasField("resume_summary")
+                    else None
+                ),
+                execution_ledger_version=request.input.execution_ledger_version,
+                run_budget=(request.input.run_budget if request.input.HasField("run_budget") else None),
+                consumed_budget=(request.input.consumed_budget if request.input.HasField("consumed_budget") else None),
+                ledger_entries=tuple(request.input.ledger_entries),
+                allowed_source_authorities=tuple(
+                    request.input.allowed_source_authorities
+                ),
+                run_purpose=request.input.run_purpose,
+                unit_scope=(
+                    request.input.unit_scope
+                    if request.input.HasField("unit_scope")
+                    else None
+                ),
+                evaluation_mode=request.input.evaluation_mode,
+                authoritative_workflow_version=(
+                    request.input.authoritative_workflow_version
+                ),
+                shadow_workflow_version=request.input.shadow_workflow_version,
+                candidate_policy_version=request.input.candidate_policy_version,
+                assignment_hash=request.input.assignment_hash,
             )
             try:
                 sequence = 2
@@ -152,7 +203,7 @@ class AgentWorkerServer(worker_rpc.AgentWorkerServiceServicer):
                     try:
                         signal = next(execution)
                     except StopIteration as finished:
-                        result = finished.value
+                        result, shadow_artifact = finished.value
                         break
                     try:
                         if signal.event_type == "MODEL_ATTEMPT":
@@ -221,6 +272,16 @@ class AgentWorkerServer(worker_rpc.AgentWorkerServiceServicer):
                                 checkpoint_sequence=checkpoint_sequence,
                                 checkpoint=checkpoint,
                             )
+                        elif signal.event_type in {"LEDGER_RESERVED", "LEDGER_CALL_STARTED", "LEDGER_FINISHED"}:
+                            item = signal.payload
+                            if not item.operation_key or not item.operation or not item.request_hash or not item.entry_kind:
+                                raise InvalidAgentResult("Ledger event identity is incomplete")
+                            event = self._event(
+                                request,
+                                sequence,
+                                signal.event_type,
+                                ledger_event=execution_proto.RunLedgerEvent(event_type=signal.event_type, entry=item),
+                            )
                         else:
                             raise InvalidAgentResult(
                                 f"unsupported runtime event: {signal.event_type}"
@@ -250,6 +311,14 @@ class AgentWorkerServer(worker_rpc.AgentWorkerServiceServicer):
                     )
                     return
                 self._validate_result(result, latest_checkpoint_sequence)
+                if (
+                    result.submission_disposition
+                    is SubmissionDisposition.TERMINAL_ACK_ONLY
+                    and run_context.submitted_draft is None
+                ):
+                    raise InvalidAgentResult(
+                        "Terminal-only result requires a submitted draft receipt"
+                    )
                 attempts = (
                     *((result.attempt,) if result.attempt is not None else ()),
                     *result.additional_attempts,
@@ -283,7 +352,7 @@ class AgentWorkerServer(worker_rpc.AgentWorkerServiceServicer):
                         context,
                     )
                     sequence += 1
-                if result.draft_key is not None and result.expected_task_version is not None:
+                if result.submission_disposition is SubmissionDisposition.SUBMIT_REQUIRED and result.draft_key is not None and result.expected_task_version is not None:
                     yield from self._yield_acked(
                         self._event(
                             request,
@@ -292,6 +361,41 @@ class AgentWorkerServer(worker_rpc.AgentWorkerServiceServicer):
                             draft_key=result.draft_key,
                             expected_task_version=result.expected_task_version,
                             draft_patch=result.draft_patch,
+                        ),
+                        context,
+                    )
+                    sequence += 1
+                if (
+                    result.submission_disposition
+                    is SubmissionDisposition.SUBMIT_REQUIRED
+                    and result.run_output is not None
+                ):
+                    yield from self._yield_acked(
+                        self._event(
+                            request,
+                            sequence,
+                            "RUN_OUTPUT_SUBMITTED",
+                            run_output=result.run_output,
+                        ),
+                        context,
+                    )
+                    sequence += 1
+                if shadow_artifact is not None:
+                    if (
+                        not shadow_artifact.artifact_key
+                        or not shadow_artifact.artifact_type
+                        or not shadow_artifact.request_hash
+                        or not shadow_artifact.content_hash
+                        or not shadow_artifact.content
+                        or len(shadow_artifact.content) > self._max_run_artifact_bytes
+                    ):
+                        raise InvalidAgentResult("Shadow Artifact payload is invalid")
+                    yield from self._yield_acked(
+                        self._event(
+                            request,
+                            sequence,
+                            "RUN_ARTIFACT_SAVED",
+                            run_artifact=shadow_artifact,
                         ),
                         context,
                     )
@@ -373,6 +477,13 @@ class AgentWorkerServer(worker_rpc.AgentWorkerServiceServicer):
             max_inflight=self._max_inflight,
             model_ready=self._model_ready,
             capability_ready=self._capability_ready,
+            supported_workflow_versions=sorted(self._supported_workflow_versions),
+            supported_snapshot_schema_versions=(
+                "agent-loop-snapshot.v1",
+                "agent-loop-snapshot.v2",
+                "agent-loop-snapshot.v3",
+            ),
+            supported_execution_ledger_versions=sorted(self._supported_execution_ledger_versions),
         )
 
     def _authorize(self, context) -> None:
@@ -446,6 +557,9 @@ class AgentWorkerServer(worker_rpc.AgentWorkerServiceServicer):
             def checkpoint(self, sequence: int, payload: bytes) -> None:
                 emit("CHECKPOINT_SAVED", (sequence, payload))
 
+            def ledger(self, event_type: str, entry) -> None:
+                emit(event_type, entry)
+
         def run_loop() -> None:
             try:
                 observed_context = replace(
@@ -453,7 +567,10 @@ class AgentWorkerServer(worker_rpc.AgentWorkerServiceServicer):
                     plan_model_attempt=None,
                     event_sink=QueueRuntimeEventSink(),
                 )
-                result_box["result"] = self._invoke_loop(observed_context, cancel_event)
+                result = self._invoke_loop(observed_context, cancel_event)
+                shadow_artifact = ShadowArtifactModule().build(observed_context, result)
+                result_box["result"] = result
+                result_box["shadow_artifact"] = shadow_artifact
             except BaseException as error:
                 result_box["error"] = error
             finally:
@@ -473,7 +590,7 @@ class AgentWorkerServer(worker_rpc.AgentWorkerServiceServicer):
         result = result_box.get("result")
         if not isinstance(result, AgentResult):
             raise InvalidAgentResult("Agent Loop did not return AgentResult")
-        return result
+        return result, result_box.get("shadow_artifact")
 
     def _invoke_loop(self, run_context: RunContext, cancel_event: CancellationToken) -> AgentResult:
         parameters = inspect.signature(self._loop).parameters.values()
@@ -509,6 +626,13 @@ class AgentWorkerServer(worker_rpc.AgentWorkerServiceServicer):
         if len(result.draft_patch) > self._max_draft_bytes:
             raise InvalidAgentResult("Draft patch exceeds size limit")
         has_draft = bool(result.draft_key or result.draft_patch)
+        has_run_output = result.run_output is not None
+        if result.submission_disposition is SubmissionDisposition.TERMINAL_ACK_ONLY:
+            if has_draft or has_run_output or result.expected_task_version is not None:
+                raise InvalidAgentResult("Terminal-only result must not contain an output")
+            return
+        if has_draft and has_run_output:
+            raise InvalidAgentResult("Agent result cannot contain draft and run output")
         if has_draft and (
             not result.draft_key
             or result.expected_task_version is None
@@ -516,6 +640,21 @@ class AgentWorkerServer(worker_rpc.AgentWorkerServiceServicer):
             or not result.draft_patch
         ):
             raise InvalidAgentResult("Draft result is incomplete")
+        if has_run_output:
+            output = result.run_output
+            if (
+                not output.schema_version
+                or not output.output_key
+                or output.output_kind
+                == execution_proto.RUN_OUTPUT_KIND_UNSPECIFIED
+                or output.run_purpose == execution_proto.RUN_PURPOSE_UNSPECIFIED
+                or not output.scope_hash
+                or output.expected_task_version < 1
+                or not output.content_hash
+                or not output.payload
+                or len(output.payload) > self._max_draft_bytes
+            ):
+                raise InvalidAgentResult("Run output is incomplete")
 
     @staticmethod
     def _error_details(error: Exception) -> tuple[str, bool]:
@@ -572,6 +711,12 @@ class AgentWorkerServer(worker_rpc.AgentWorkerServiceServicer):
                     content=artifact.content,
                 )
             )
+        ledger_event = kwargs.get("ledger_event")
+        if ledger_event is not None:
+            result.ledger_event.CopyFrom(ledger_event)
+        run_output = kwargs.get("run_output")
+        if run_output is not None:
+            result.run_output.CopyFrom(run_output)
         if kwargs.get("checkpoint_sequence") is not None:
             result.checkpoint_sequence = kwargs["checkpoint_sequence"]
             result.checkpoint = kwargs.get("checkpoint", b"")

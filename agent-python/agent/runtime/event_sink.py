@@ -17,6 +17,8 @@ class RuntimeEventSink(Protocol):
 
     def checkpoint(self, sequence: int, payload: bytes) -> None: ...
 
+    def ledger(self, event_type: str, entry: proto.RunLedgerEntry) -> None: ...
+
 
 @dataclass
 class BufferedRuntimeEventSink:
@@ -26,6 +28,7 @@ class BufferedRuntimeEventSink:
     evidence_items: list[proto.EvidenceItem] = field(default_factory=list)
     artifacts: list[proto.RunArtifact] = field(default_factory=list)
     checkpoints: list[tuple[int, bytes]] = field(default_factory=list)
+    ledger_events: list[proto.RunLedgerEvent] = field(default_factory=list)
 
     def model_attempt(self, attempt: proto.RecordModelAttemptRequest) -> None:
         self.model_attempts.append(attempt)
@@ -38,3 +41,6 @@ class BufferedRuntimeEventSink:
 
     def checkpoint(self, sequence: int, payload: bytes) -> None:
         self.checkpoints.append((sequence, payload))
+
+    def ledger(self, event_type: str, entry: proto.RunLedgerEntry) -> None:
+        self.ledger_events.append(proto.RunLedgerEvent(event_type=event_type, entry=entry))

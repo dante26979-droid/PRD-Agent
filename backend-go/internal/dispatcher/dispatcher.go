@@ -33,11 +33,12 @@ type Dispatcher struct {
 }
 
 type Report struct {
-	Processed int
-	Succeeded int
-	Failed    int
-	Unknown   int
-	Saturated int
+	Processed    int
+	Succeeded    int
+	Failed       int
+	Unknown      int
+	Saturated    int
+	Incompatible int
 }
 
 func New(store runcontrol.DispatchStore, pool *agentpool.Pool, leaseTTL time.Duration, maxBatch int) (*Dispatcher, error) {
@@ -66,7 +67,11 @@ func (d *Dispatcher) DispatchOnce(ctx context.Context) (Report, error) {
 	}
 	report := Report{}
 	for _, run := range runs {
-		reservation, err := d.pool.Reserve("")
+		reservation, err := d.pool.ReserveForRun(string(run.WorkflowVersion), string(run.ExecutionLedgerVersion))
+		if errors.Is(err, agentpool.ErrNoCompatibleWorker) {
+			report.Incompatible++
+			continue
+		}
 		if errors.Is(err, agentpool.ErrPoolSaturated) {
 			report.Saturated++
 			break
@@ -171,7 +176,11 @@ func (d *Dispatcher) RecoverUnknown(ctx context.Context, limit int) (Report, err
 			}
 			continue
 		}
-		reservation, err := d.pool.Reserve("")
+		reservation, err := d.pool.ReserveForRun(string(current.WorkflowVersion), string(current.ExecutionLedgerVersion))
+		if errors.Is(err, agentpool.ErrNoCompatibleWorker) {
+			report.Incompatible++
+			continue
+		}
 		if errors.Is(err, agentpool.ErrPoolSaturated) {
 			report.Saturated++
 			break
@@ -202,10 +211,13 @@ func (d *Dispatcher) RecoverUnknown(ctx context.Context, limit int) (Report, err
 			report.Failed++
 			continue
 		}
-		hasModelAttempts, err := d.store.HasModelAttempts(ctx, previous.RunID)
-		if err != nil {
-			reservation.Release()
-			return report, err
+		hasModelAttempts := false
+		if current.ExecutionLedgerVersion == "" {
+			hasModelAttempts, err = d.store.HasModelAttempts(ctx, previous.RunID)
+			if err != nil {
+				reservation.Release()
+				return report, err
+			}
 		}
 		if hasModelAttempts {
 			if _, err := d.store.CompleteRun(ctx, leaseFromRun(run), runcontrol.RunFailed, finished); err != nil {
@@ -383,12 +395,48 @@ func (a *eventApplier) Apply(ctx context.Context, event *agentv1.ExecuteRunRespo
 		}); err != nil {
 			return err
 		}
+	case "LEDGER_RESERVED":
+		entry, err := ledgerEntryFromProto(event.LedgerEvent)
+		if err != nil {
+			return err
+		}
+		if _, err := a.dispatcher.store.ReserveLedgerEntry(ctx, a.currentLease, entry); err != nil {
+			return err
+		}
+	case "LEDGER_CALL_STARTED":
+		entry, err := ledgerEntryFromProto(event.LedgerEvent)
+		if err != nil {
+			return err
+		}
+		if _, err := a.dispatcher.store.MarkLedgerCallStarted(ctx, a.currentLease, entry.OperationKey, entry.RequestHash); err != nil {
+			return err
+		}
+	case "LEDGER_FINISHED":
+		entry, err := ledgerEntryFromProto(event.LedgerEvent)
+		if err != nil {
+			return err
+		}
+		if entry.EntryKind == runcontrol.LedgerEntryLocalTransition {
+			if _, err := a.dispatcher.store.ConsumeLocalLedgerEntry(ctx, a.currentLease, entry); err != nil {
+				return err
+			}
+		} else if _, err := a.dispatcher.store.FinishLedgerEntry(ctx, a.currentLease, runcontrol.LedgerFinish{OperationKey: entry.OperationKey, RequestHash: entry.RequestHash, Status: entry.Status, Consumption: entry.Consumption, OutputArtifactKey: entry.OutputArtifactKey, OutputArtifactHash: entry.OutputArtifactHash, EvidenceRefs: entry.EvidenceRefs, ErrorCategory: entry.ErrorCategory, Retryable: entry.Retryable}); err != nil {
+			return err
+		}
 	case "CHECKPOINT_SAVED":
 		if _, err := a.dispatcher.store.SaveCheckpoint(ctx, a.currentLease, event.CheckpointSequence, event.Checkpoint); err != nil {
 			return err
 		}
 	case "DRAFT_SUBMITTED":
 		if _, err := a.dispatcher.store.SubmitDraft(ctx, a.currentLease, event.DraftKey, int(event.ExpectedTaskVersion), event.DraftPatch); err != nil {
+			return err
+		}
+	case "RUN_OUTPUT_SUBMITTED":
+		output, err := runOutputFromProto(event.RunOutput)
+		if err != nil {
+			return err
+		}
+		if _, err := a.dispatcher.store.SubmitRunOutput(ctx, a.currentLease, output); err != nil {
 			return err
 		}
 	case "RUN_COMPLETED":
@@ -437,7 +485,7 @@ func (d *Dispatcher) markUnknown(ctx context.Context, run runcontrol.AgentRun, r
 }
 
 func requestHash(dispatchID string, input runcontrol.AgentRunInput) string {
-	digest := sha256.Sum256([]byte(dispatchID + "\x00" + input.Run.RunID + "\x00" + input.WorkflowVersion + "\x00" + string(input.Checkpoint)))
+	digest := sha256.Sum256([]byte(dispatchID + "\x00" + input.Run.RunID + "\x00" + input.WorkflowVersion + "\x00" + input.ExecutionLedgerVersion + "\x00" + string(input.RunPurpose) + "\x00" + input.UnitScope.ScopeHash + "\x00" + input.AssignmentHash + "\x00" + string(input.Checkpoint)))
 	return hex.EncodeToString(digest[:])
 }
 
@@ -450,7 +498,31 @@ func leaseToProto(lease runcontrol.LeaseContext) *agentv1.LeaseContext {
 }
 
 func inputToProto(input runcontrol.AgentRunInput) *agentv1.AgentRunInput {
-	value := &agentv1.AgentRunInput{RunId: input.Run.RunID, TenantId: input.Run.TenantID, OwnerId: input.Run.OwnerID, TaskId: input.Run.TaskID, TaskMessage: input.TaskMessage, WorkflowVersion: input.WorkflowVersion, Checkpoint: input.Checkpoint, CheckpointSequence: input.CheckpointSequence, TaskVersion: int64(input.TaskVersion), RepositoryBindingId: input.RepositoryBindingID, RepositoryRevision: input.RepositoryRevision}
+	value := &agentv1.AgentRunInput{RunId: input.Run.RunID, TenantId: input.Run.TenantID, OwnerId: input.Run.OwnerID, TaskId: input.Run.TaskID, TaskMessage: input.TaskMessage, WorkflowVersion: input.WorkflowVersion, Checkpoint: input.Checkpoint, CheckpointSequence: input.CheckpointSequence, TaskVersion: int64(input.TaskVersion), RepositoryBindingId: input.RepositoryBindingID, RepositoryRevision: input.RepositoryRevision, EvaluationMode: string(input.EvaluationMode), AuthoritativeWorkflowVersion: string(input.AuthoritativeWorkflow), ShadowWorkflowVersion: string(input.ShadowWorkflow), CandidatePolicyVersion: input.CandidatePolicyVersion, AssignmentHash: input.AssignmentHash}
+	if input.RunPurpose.Valid() {
+		value.RunPurpose = runPurposeToProto(input.RunPurpose)
+		value.UnitScope = unitScopeToProto(input.UnitScope)
+	}
+	if input.RepositoryBindingID != "" && input.RepositoryRevision != "" {
+		value.AllowedSourceAuthorities = append(value.AllowedSourceAuthorities, &agentv1.SourceAuthority{
+			SourceKind:    "github",
+			BindingId:     input.RepositoryBindingID,
+			SourceId:      input.RepositoryBindingID,
+			SourceVersion: input.RepositoryRevision,
+		})
+	}
+	value.ExecutionLedgerVersion = input.ExecutionLedgerVersion
+	if input.ExecutionLedgerVersion != "" {
+		value.RunBudget = runBudgetToProto(input.RunBudget)
+		value.ConsumedBudget = consumedBudgetToProto(input.ConsumedBudget)
+		for _, entry := range input.LedgerEntries {
+			value.LedgerEntries = append(value.LedgerEntries, ledgerEntryToProto(entry))
+		}
+	}
+	value.ResumeSummary = &agentv1.ResumeStateSummary{CheckpointContentHash: input.ResumeSummary.CheckpointContentHash, TerminalModelAttemptCount: input.ResumeSummary.TerminalModelAttemptCount, EvidenceCount: input.ResumeSummary.EvidenceCount, EvidenceRefs: input.ResumeSummary.EvidenceRefs, ArtifactCount: input.ResumeSummary.ArtifactCount}
+	for _, item := range input.ResumeSummary.Artifacts {
+		value.ResumeSummary.Artifacts = append(value.ResumeSummary.Artifacts, &agentv1.RunArtifactIdentity{ArtifactKey: item.ArtifactKey, ArtifactType: item.ArtifactType, Generation: item.Generation, RequestHash: item.RequestHash, ContentHash: item.ContentHash})
+	}
 	for _, item := range input.ResumeEvidence {
 		value.ResumeEvidence = append(value.ResumeEvidence, &agentv1.EvidenceItem{SourceType: item.SourceType, SourceId: item.SourceID, Locator: item.Locator, ExcerptHash: item.ExcerptHash, Excerpt: item.Excerpt})
 	}
@@ -463,7 +535,132 @@ func inputToProto(input runcontrol.AgentRunInput) *agentv1.AgentRunInput {
 	if input.ResumeDraft != nil {
 		value.ResumeDraft = &agentv1.SubmittedDraftReceipt{DraftKey: input.ResumeDraft.DraftKey, ContentHash: input.ResumeDraft.ContentHash, TaskVersion: int64(input.ResumeDraft.TaskVersion), Content: input.ResumeDraft.Content}
 	}
+	if input.BaseDraft != nil {
+		value.BaseDraft = &agentv1.SubmittedDraftReceipt{DraftKey: input.BaseDraft.DraftKey, ContentHash: input.BaseDraft.ContentHash, TaskVersion: int64(input.BaseDraft.TaskVersion), Content: input.BaseDraft.Content}
+	}
+	if input.SubmittedDraft != nil {
+		value.SubmittedDraft = &agentv1.SubmittedDraftReceipt{DraftKey: input.SubmittedDraft.DraftKey, ContentHash: input.SubmittedDraft.ContentHash, TaskVersion: int64(input.SubmittedDraft.TaskVersion), Content: input.SubmittedDraft.Content}
+	}
 	return value
+}
+
+func runPurposeToProto(value runcontrol.RunPurpose) agentv1.RunPurpose {
+	switch value {
+	case runcontrol.RunPurposePlanOutline:
+		return agentv1.RunPurpose_RUN_PURPOSE_PLAN_OUTLINE
+	case runcontrol.RunPurposeGenerateUnit:
+		return agentv1.RunPurpose_RUN_PURPOSE_GENERATE_UNIT
+	case runcontrol.RunPurposeReviseUnit:
+		return agentv1.RunPurpose_RUN_PURPOSE_REVISE_UNIT
+	case runcontrol.RunPurposeFullReview:
+		return agentv1.RunPurpose_RUN_PURPOSE_FULL_REVIEW
+	default:
+		return agentv1.RunPurpose_RUN_PURPOSE_UNSPECIFIED
+	}
+}
+
+func runPurposeFromProto(value agentv1.RunPurpose) runcontrol.RunPurpose {
+	switch value {
+	case agentv1.RunPurpose_RUN_PURPOSE_PLAN_OUTLINE:
+		return runcontrol.RunPurposePlanOutline
+	case agentv1.RunPurpose_RUN_PURPOSE_GENERATE_UNIT:
+		return runcontrol.RunPurposeGenerateUnit
+	case agentv1.RunPurpose_RUN_PURPOSE_REVISE_UNIT:
+		return runcontrol.RunPurposeReviseUnit
+	case agentv1.RunPurpose_RUN_PURPOSE_FULL_REVIEW:
+		return runcontrol.RunPurposeFullReview
+	default:
+		return ""
+	}
+}
+
+func runOutputKindFromProto(value agentv1.RunOutputKind) runcontrol.RunOutputKind {
+	switch value {
+	case agentv1.RunOutputKind_RUN_OUTPUT_KIND_OUTLINE_CANDIDATE:
+		return runcontrol.RunOutputOutlineCandidate
+	case agentv1.RunOutputKind_RUN_OUTPUT_KIND_UNIT_CANDIDATE:
+		return runcontrol.RunOutputUnitCandidate
+	case agentv1.RunOutputKind_RUN_OUTPUT_KIND_UNIT_PATCH:
+		return runcontrol.RunOutputUnitPatch
+	case agentv1.RunOutputKind_RUN_OUTPUT_KIND_FULL_REVIEW_REPORT:
+		return runcontrol.RunOutputFullReviewReport
+	default:
+		return ""
+	}
+}
+
+func unitScopeToProto(value runcontrol.UnitScope) *agentv1.UnitScope {
+	result := &agentv1.UnitScope{
+		SchemaVersion: value.SchemaVersion, OutlineId: value.OutlineID,
+		OutlineVersion: value.OutlineVersion, OutlineHash: value.OutlineHash,
+		CurrentUnitKey: value.CurrentUnitKey, CurrentUnitTitle: value.CurrentUnitTitle,
+		CurrentUnitOrdinal: int32(value.CurrentUnitOrdinal), SectionNodeKeys: value.SectionNodeKeys,
+		DependencyUnitKeys: value.DependencyUnitKeys, ReopenedUnitKeys: value.ReopenedUnitKeys,
+		ImmutableUnitKeys: value.ImmutableUnitKeys, RequirementBriefRef: value.RequirementRef,
+		RequirementBriefHash: value.RequirementHash, BaseUnitHash: value.BaseUnitHash,
+		UserFeedback: value.UserFeedback, ScopeHash: value.ScopeHash,
+	}
+	for _, item := range value.ConfirmedContext {
+		result.ConfirmedContext = append(result.ConfirmedContext, &agentv1.ConfirmedUnitContext{
+			UnitKey: item.UnitKey, UnitVersion: item.UnitVersion, ContentHash: item.ContentHash,
+			Summary: item.Summary, WorkingDraftRef: item.WorkingDraftRef, Markdown: item.Markdown,
+		})
+	}
+	return result
+}
+
+func runOutputFromProto(value *agentv1.RunOutput) (runcontrol.RunOutput, error) {
+	if value == nil {
+		return runcontrol.RunOutput{}, fmt.Errorf("run output payload is required")
+	}
+	purpose := runPurposeFromProto(value.RunPurpose)
+	kind := runOutputKindFromProto(value.OutputKind)
+	if !purpose.Valid() || kind == "" {
+		return runcontrol.RunOutput{}, fmt.Errorf("run output purpose or kind is invalid")
+	}
+	return runcontrol.RunOutput{
+		SchemaVersion: value.SchemaVersion, OutputKey: value.OutputKey,
+		OutputKind: kind, RunPurpose: purpose, ScopeHash: value.ScopeHash,
+		ExpectedTaskVersion: int(value.ExpectedTaskVersion), ContentHash: value.ContentHash,
+		Payload: append([]byte(nil), value.Payload...),
+	}, nil
+}
+
+func budgetDeltaFromProto(value *agentv1.BudgetDelta) runcontrol.BudgetDelta {
+	if value == nil {
+		return runcontrol.BudgetDelta{}
+	}
+	return runcontrol.BudgetDelta{ModelAttempts: value.ModelAttempts, ToolCalls: value.ToolCalls, Iterations: value.Iterations, Replans: value.Replans, Supplements: value.Supplements, QualityRepairs: value.QualityRepairs, InputTokens: value.InputTokens, OutputTokens: value.OutputTokens, ElapsedMS: value.ElapsedMs}
+}
+
+func budgetDeltaToProto(value runcontrol.BudgetDelta) *agentv1.BudgetDelta {
+	return &agentv1.BudgetDelta{ModelAttempts: value.ModelAttempts, ToolCalls: value.ToolCalls, Iterations: value.Iterations, Replans: value.Replans, Supplements: value.Supplements, QualityRepairs: value.QualityRepairs, InputTokens: value.InputTokens, OutputTokens: value.OutputTokens, ElapsedMs: value.ElapsedMS}
+}
+
+func runBudgetToProto(value runcontrol.RunBudget) *agentv1.RunBudget {
+	if value == (runcontrol.RunBudget{}) {
+		return nil
+	}
+	return &agentv1.RunBudget{MaxModelAttempts: value.MaxModelAttempts, MaxToolCalls: value.MaxToolCalls, MaxIterations: value.MaxIterations, MaxReplans: value.MaxReplans, MaxSupplements: value.MaxSupplements, MaxQualityRepairs: value.MaxQualityRepairs, MaxInputTokens: value.MaxInputTokens, MaxOutputTokens: value.MaxOutputTokens, MaxElapsedMs: value.MaxElapsedMS}
+}
+
+func consumedBudgetToProto(value runcontrol.BudgetDelta) *agentv1.ConsumedBudget {
+	return &agentv1.ConsumedBudget{ModelAttempts: value.ModelAttempts, ToolCalls: value.ToolCalls, Iterations: value.Iterations, Replans: value.Replans, Supplements: value.Supplements, QualityRepairs: value.QualityRepairs, InputTokens: value.InputTokens, OutputTokens: value.OutputTokens, ElapsedMs: value.ElapsedMS}
+}
+
+func ledgerEntryToProto(entry runcontrol.LedgerEntry) *agentv1.RunLedgerEntry {
+	return &agentv1.RunLedgerEntry{EntryId: entry.EntryID, OperationKey: entry.OperationKey, EntryKind: string(entry.EntryKind), Operation: entry.Operation, RequestHash: entry.RequestHash, Status: string(entry.Status), Reservation: budgetDeltaToProto(entry.Reservation), Consumption: budgetDeltaToProto(entry.Consumption), OutputArtifactKey: entry.OutputArtifactKey, OutputArtifactHash: entry.OutputArtifactHash, EvidenceRefs: entry.EvidenceRefs, ErrorCategory: entry.ErrorCategory, Retryable: entry.Retryable}
+}
+
+func ledgerEntryFromProto(event *agentv1.RunLedgerEvent) (runcontrol.LedgerEntry, error) {
+	if event == nil || event.Entry == nil {
+		return runcontrol.LedgerEntry{}, fmt.Errorf("ledger event payload is required")
+	}
+	entry := event.Entry
+	if entry.OperationKey == "" || entry.Operation == "" || entry.RequestHash == "" {
+		return runcontrol.LedgerEntry{}, fmt.Errorf("ledger event identity is incomplete")
+	}
+	return runcontrol.LedgerEntry{EntryID: entry.EntryId, OperationKey: entry.OperationKey, EntryKind: runcontrol.LedgerEntryKind(entry.EntryKind), Operation: entry.Operation, RequestHash: entry.RequestHash, Status: runcontrol.LedgerStatus(entry.Status), Reservation: budgetDeltaFromProto(entry.Reservation), Consumption: budgetDeltaFromProto(entry.Consumption), OutputArtifactKey: entry.OutputArtifactKey, OutputArtifactHash: entry.OutputArtifactHash, EvidenceRefs: append([]string(nil), entry.EvidenceRefs...), ErrorCategory: entry.ErrorCategory, Retryable: entry.Retryable}, nil
 }
 
 func timePtr(value time.Time) *time.Time { return &value }

@@ -454,6 +454,8 @@ type ExecuteRunResponse struct {
 	ContractVersion     string                 `protobuf:"bytes,17,opt,name=contract_version,json=contractVersion,proto3" json:"contract_version,omitempty"`
 	CorrelationId       string                 `protobuf:"bytes,18,opt,name=correlation_id,json=correlationId,proto3" json:"correlation_id,omitempty"`
 	RunArtifact         *RunArtifactEvent      `protobuf:"bytes,19,opt,name=run_artifact,json=runArtifact,proto3" json:"run_artifact,omitempty"`
+	LedgerEvent         *RunLedgerEvent        `protobuf:"bytes,20,opt,name=ledger_event,json=ledgerEvent,proto3" json:"ledger_event,omitempty"`
+	RunOutput           *RunOutput             `protobuf:"bytes,21,opt,name=run_output,json=runOutput,proto3" json:"run_output,omitempty"`
 	unknownFields       protoimpl.UnknownFields
 	sizeCache           protoimpl.SizeCache
 }
@@ -617,6 +619,20 @@ func (x *ExecuteRunResponse) GetCorrelationId() string {
 func (x *ExecuteRunResponse) GetRunArtifact() *RunArtifactEvent {
 	if x != nil {
 		return x.RunArtifact
+	}
+	return nil
+}
+
+func (x *ExecuteRunResponse) GetLedgerEvent() *RunLedgerEvent {
+	if x != nil {
+		return x.LedgerEvent
+	}
+	return nil
+}
+
+func (x *ExecuteRunResponse) GetRunOutput() *RunOutput {
+	if x != nil {
+		return x.RunOutput
 	}
 	return nil
 }
@@ -786,15 +802,18 @@ func (x *HealthRequest) GetWorkerId() string {
 }
 
 type HealthResponse struct {
-	state           protoimpl.MessageState `protogen:"open.v1"`
-	WorkerId        string                 `protobuf:"bytes,1,opt,name=worker_id,json=workerId,proto3" json:"worker_id,omitempty"`
-	Status          string                 `protobuf:"bytes,2,opt,name=status,proto3" json:"status,omitempty"`
-	ActiveRuns      int32                  `protobuf:"varint,3,opt,name=active_runs,json=activeRuns,proto3" json:"active_runs,omitempty"`
-	MaxInflight     int32                  `protobuf:"varint,4,opt,name=max_inflight,json=maxInflight,proto3" json:"max_inflight,omitempty"`
-	ModelReady      bool                   `protobuf:"varint,5,opt,name=model_ready,json=modelReady,proto3" json:"model_ready,omitempty"`
-	CapabilityReady bool                   `protobuf:"varint,6,opt,name=capability_ready,json=capabilityReady,proto3" json:"capability_ready,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	state                            protoimpl.MessageState `protogen:"open.v1"`
+	WorkerId                         string                 `protobuf:"bytes,1,opt,name=worker_id,json=workerId,proto3" json:"worker_id,omitempty"`
+	Status                           string                 `protobuf:"bytes,2,opt,name=status,proto3" json:"status,omitempty"`
+	ActiveRuns                       int32                  `protobuf:"varint,3,opt,name=active_runs,json=activeRuns,proto3" json:"active_runs,omitempty"`
+	MaxInflight                      int32                  `protobuf:"varint,4,opt,name=max_inflight,json=maxInflight,proto3" json:"max_inflight,omitempty"`
+	ModelReady                       bool                   `protobuf:"varint,5,opt,name=model_ready,json=modelReady,proto3" json:"model_ready,omitempty"`
+	CapabilityReady                  bool                   `protobuf:"varint,6,opt,name=capability_ready,json=capabilityReady,proto3" json:"capability_ready,omitempty"`
+	SupportedWorkflowVersions        []string               `protobuf:"bytes,7,rep,name=supported_workflow_versions,json=supportedWorkflowVersions,proto3" json:"supported_workflow_versions,omitempty"`
+	SupportedSnapshotSchemaVersions  []string               `protobuf:"bytes,8,rep,name=supported_snapshot_schema_versions,json=supportedSnapshotSchemaVersions,proto3" json:"supported_snapshot_schema_versions,omitempty"`
+	SupportedExecutionLedgerVersions []string               `protobuf:"bytes,9,rep,name=supported_execution_ledger_versions,json=supportedExecutionLedgerVersions,proto3" json:"supported_execution_ledger_versions,omitempty"`
+	unknownFields                    protoimpl.UnknownFields
+	sizeCache                        protoimpl.SizeCache
 }
 
 func (x *HealthResponse) Reset() {
@@ -869,6 +888,27 @@ func (x *HealthResponse) GetCapabilityReady() bool {
 	return false
 }
 
+func (x *HealthResponse) GetSupportedWorkflowVersions() []string {
+	if x != nil {
+		return x.SupportedWorkflowVersions
+	}
+	return nil
+}
+
+func (x *HealthResponse) GetSupportedSnapshotSchemaVersions() []string {
+	if x != nil {
+		return x.SupportedSnapshotSchemaVersions
+	}
+	return nil
+}
+
+func (x *HealthResponse) GetSupportedExecutionLedgerVersions() []string {
+	if x != nil {
+		return x.SupportedExecutionLedgerVersions
+	}
+	return nil
+}
+
 var File_agent_v1_agent_worker_proto protoreflect.FileDescriptor
 
 const file_agent_v1_agent_worker_proto_rawDesc = "" +
@@ -912,7 +952,7 @@ const file_agent_v1_agent_worker_proto_rawDesc = "" +
 	"generation\x12!\n" +
 	"\frequest_hash\x18\x04 \x01(\tR\vrequestHash\x12!\n" +
 	"\fcontent_hash\x18\x05 \x01(\tR\vcontentHash\x12\x18\n" +
-	"\acontent\x18\x06 \x01(\fR\acontent\"\x89\x06\n" +
+	"\acontent\x18\x06 \x01(\fR\acontent\"\xfa\x06\n" +
 	"\x12ExecuteRunResponse\x12\x1f\n" +
 	"\vdispatch_id\x18\x01 \x01(\tR\n" +
 	"dispatchId\x12\x15\n" +
@@ -940,7 +980,10 @@ const file_agent_v1_agent_worker_proto_rawDesc = "" +
 	"occurredAt\x12)\n" +
 	"\x10contract_version\x18\x11 \x01(\tR\x0fcontractVersion\x12%\n" +
 	"\x0ecorrelation_id\x18\x12 \x01(\tR\rcorrelationId\x12=\n" +
-	"\frun_artifact\x18\x13 \x01(\v2\x1a.agent.v1.RunArtifactEventR\vrunArtifact\"\x92\x01\n" +
+	"\frun_artifact\x18\x13 \x01(\v2\x1a.agent.v1.RunArtifactEventR\vrunArtifact\x12;\n" +
+	"\fledger_event\x18\x14 \x01(\v2\x18.agent.v1.RunLedgerEventR\vledgerEvent\x122\n" +
+	"\n" +
+	"run_output\x18\x15 \x01(\v2\x13.agent.v1.RunOutputR\trunOutput\"\x92\x01\n" +
 	"\x10CancelRunRequest\x12)\n" +
 	"\x04meta\x18\x01 \x01(\v2\x15.agent.v1.RequestMetaR\x04meta\x12\x1f\n" +
 	"\vdispatch_id\x18\x02 \x01(\tR\n" +
@@ -951,7 +994,7 @@ const file_agent_v1_agent_worker_proto_rawDesc = "" +
 	"\baccepted\x18\x01 \x01(\bR\baccepted\"W\n" +
 	"\rHealthRequest\x12)\n" +
 	"\x04meta\x18\x01 \x01(\v2\x15.agent.v1.RequestMetaR\x04meta\x12\x1b\n" +
-	"\tworker_id\x18\x02 \x01(\tR\bworkerId\"\xd5\x01\n" +
+	"\tworker_id\x18\x02 \x01(\tR\bworkerId\"\xb1\x03\n" +
 	"\x0eHealthResponse\x12\x1b\n" +
 	"\tworker_id\x18\x01 \x01(\tR\bworkerId\x12\x16\n" +
 	"\x06status\x18\x02 \x01(\tR\x06status\x12\x1f\n" +
@@ -960,7 +1003,10 @@ const file_agent_v1_agent_worker_proto_rawDesc = "" +
 	"\fmax_inflight\x18\x04 \x01(\x05R\vmaxInflight\x12\x1f\n" +
 	"\vmodel_ready\x18\x05 \x01(\bR\n" +
 	"modelReady\x12)\n" +
-	"\x10capability_ready\x18\x06 \x01(\bR\x0fcapabilityReady2\xbd\x02\n" +
+	"\x10capability_ready\x18\x06 \x01(\bR\x0fcapabilityReady\x12>\n" +
+	"\x1bsupported_workflow_versions\x18\a \x03(\tR\x19supportedWorkflowVersions\x12K\n" +
+	"\"supported_snapshot_schema_versions\x18\b \x03(\tR\x1fsupportedSnapshotSchemaVersions\x12M\n" +
+	"#supported_execution_ledger_versions\x18\t \x03(\tR supportedExecutionLedgerVersions2\xbd\x02\n" +
 	"\x12AgentWorkerService\x12I\n" +
 	"\n" +
 	"ExecuteRun\x12\x1b.agent.v1.ExecuteRunRequest\x1a\x1c.agent.v1.ExecuteRunResponse0\x01\x12Y\n" +
@@ -996,6 +1042,8 @@ var file_agent_v1_agent_worker_proto_goTypes = []any{
 	(*LeaseContext)(nil),             // 11: agent.v1.LeaseContext
 	(*AgentRunInput)(nil),            // 12: agent.v1.AgentRunInput
 	(*EvidenceItem)(nil),             // 13: agent.v1.EvidenceItem
+	(*RunLedgerEvent)(nil),           // 14: agent.v1.RunLedgerEvent
+	(*RunOutput)(nil),                // 15: agent.v1.RunOutput
 }
 var file_agent_v1_agent_worker_proto_depIdxs = []int32{
 	10, // 0: agent.v1.AcknowledgeEventRequest.meta:type_name -> agent.v1.RequestMeta
@@ -1005,21 +1053,23 @@ var file_agent_v1_agent_worker_proto_depIdxs = []int32{
 	3,  // 4: agent.v1.ExecuteRunResponse.model_attempt:type_name -> agent.v1.ModelAttemptEvent
 	13, // 5: agent.v1.ExecuteRunResponse.evidence_items:type_name -> agent.v1.EvidenceItem
 	4,  // 6: agent.v1.ExecuteRunResponse.run_artifact:type_name -> agent.v1.RunArtifactEvent
-	10, // 7: agent.v1.CancelRunRequest.meta:type_name -> agent.v1.RequestMeta
-	10, // 8: agent.v1.HealthRequest.meta:type_name -> agent.v1.RequestMeta
-	2,  // 9: agent.v1.AgentWorkerService.ExecuteRun:input_type -> agent.v1.ExecuteRunRequest
-	0,  // 10: agent.v1.AgentWorkerService.AcknowledgeEvent:input_type -> agent.v1.AcknowledgeEventRequest
-	6,  // 11: agent.v1.AgentWorkerService.CancelRun:input_type -> agent.v1.CancelRunRequest
-	8,  // 12: agent.v1.AgentWorkerService.Health:input_type -> agent.v1.HealthRequest
-	5,  // 13: agent.v1.AgentWorkerService.ExecuteRun:output_type -> agent.v1.ExecuteRunResponse
-	1,  // 14: agent.v1.AgentWorkerService.AcknowledgeEvent:output_type -> agent.v1.AcknowledgeEventResponse
-	7,  // 15: agent.v1.AgentWorkerService.CancelRun:output_type -> agent.v1.CancelRunResponse
-	9,  // 16: agent.v1.AgentWorkerService.Health:output_type -> agent.v1.HealthResponse
-	13, // [13:17] is the sub-list for method output_type
-	9,  // [9:13] is the sub-list for method input_type
-	9,  // [9:9] is the sub-list for extension type_name
-	9,  // [9:9] is the sub-list for extension extendee
-	0,  // [0:9] is the sub-list for field type_name
+	14, // 7: agent.v1.ExecuteRunResponse.ledger_event:type_name -> agent.v1.RunLedgerEvent
+	15, // 8: agent.v1.ExecuteRunResponse.run_output:type_name -> agent.v1.RunOutput
+	10, // 9: agent.v1.CancelRunRequest.meta:type_name -> agent.v1.RequestMeta
+	10, // 10: agent.v1.HealthRequest.meta:type_name -> agent.v1.RequestMeta
+	2,  // 11: agent.v1.AgentWorkerService.ExecuteRun:input_type -> agent.v1.ExecuteRunRequest
+	0,  // 12: agent.v1.AgentWorkerService.AcknowledgeEvent:input_type -> agent.v1.AcknowledgeEventRequest
+	6,  // 13: agent.v1.AgentWorkerService.CancelRun:input_type -> agent.v1.CancelRunRequest
+	8,  // 14: agent.v1.AgentWorkerService.Health:input_type -> agent.v1.HealthRequest
+	5,  // 15: agent.v1.AgentWorkerService.ExecuteRun:output_type -> agent.v1.ExecuteRunResponse
+	1,  // 16: agent.v1.AgentWorkerService.AcknowledgeEvent:output_type -> agent.v1.AcknowledgeEventResponse
+	7,  // 17: agent.v1.AgentWorkerService.CancelRun:output_type -> agent.v1.CancelRunResponse
+	9,  // 18: agent.v1.AgentWorkerService.Health:output_type -> agent.v1.HealthResponse
+	15, // [15:19] is the sub-list for method output_type
+	11, // [11:15] is the sub-list for method input_type
+	11, // [11:11] is the sub-list for extension type_name
+	11, // [11:11] is the sub-list for extension extendee
+	0,  // [0:11] is the sub-list for field type_name
 }
 
 func init() { file_agent_v1_agent_worker_proto_init() }

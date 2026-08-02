@@ -13,6 +13,7 @@ service AgentExecutionService {
 	rpc SaveRunArtifact(SaveRunArtifactRequest) returns (SaveRunArtifactResponse);
 	rpc SaveCheckpoint(SaveCheckpointRequest) returns (SaveCheckpointResponse);
 	rpc SubmitDraft(SubmitDraftRequest) returns (SubmitDraftResponse);
+	rpc SubmitRunOutput(SubmitRunOutputRequest) returns (SubmitRunOutputResponse);
 	rpc CompleteRun(CompleteRunRequest) returns (CompleteRunResponse);
 	rpc FailRun(FailRunRequest) returns (FailRunResponse);
 }
@@ -62,6 +63,131 @@ message AgentRunInput {
 	repeated RunArtifact resume_artifacts = 13;
 	RevisionScope revision_scope = 14;
 	SubmittedDraftReceipt resume_draft = 15;
+	SubmittedDraftReceipt base_draft = 16;
+	SubmittedDraftReceipt submitted_draft = 17;
+	ResumeStateSummary resume_summary = 18;
+	string execution_ledger_version = 19;
+	RunBudget run_budget = 20;
+	ConsumedBudget consumed_budget = 21;
+	repeated RunLedgerEntry ledger_entries = 22;
+	repeated SourceAuthority allowed_source_authorities = 23;
+	RunPurpose run_purpose = 24;
+	UnitScope unit_scope = 25;
+	string evaluation_mode = 26;
+	string authoritative_workflow_version = 27;
+	string shadow_workflow_version = 28;
+	string candidate_policy_version = 29;
+	string assignment_hash = 30;
+}
+
+enum RunPurpose {
+	RUN_PURPOSE_UNSPECIFIED = 0;
+	RUN_PURPOSE_PLAN_OUTLINE = 1;
+	RUN_PURPOSE_GENERATE_UNIT = 2;
+	RUN_PURPOSE_REVISE_UNIT = 3;
+	RUN_PURPOSE_FULL_REVIEW = 4;
+}
+
+enum RunOutputKind {
+	RUN_OUTPUT_KIND_UNSPECIFIED = 0;
+	RUN_OUTPUT_KIND_OUTLINE_CANDIDATE = 1;
+	RUN_OUTPUT_KIND_UNIT_CANDIDATE = 2;
+	RUN_OUTPUT_KIND_UNIT_PATCH = 3;
+	RUN_OUTPUT_KIND_FULL_REVIEW_REPORT = 4;
+}
+
+message ConfirmedUnitContext {
+	string unit_key = 1;
+	int64 unit_version = 2;
+	string content_hash = 3;
+	string summary = 4;
+	string working_draft_ref = 5;
+	string markdown = 6;
+}
+
+message UnitScope {
+	string schema_version = 1;
+	string outline_id = 2;
+	int64 outline_version = 3;
+	string outline_hash = 4;
+	string current_unit_key = 5;
+	string current_unit_title = 6;
+	int32 current_unit_ordinal = 7;
+	repeated string section_node_keys = 8;
+	repeated string dependency_unit_keys = 9;
+	repeated ConfirmedUnitContext confirmed_context = 10;
+	repeated string reopened_unit_keys = 11;
+	repeated string immutable_unit_keys = 12;
+	string requirement_brief_ref = 13;
+	string requirement_brief_hash = 14;
+	string base_unit_hash = 15;
+	string user_feedback = 16;
+	string scope_hash = 17;
+}
+
+message SourceAuthority {
+	string source_kind = 1;
+	string binding_id = 2;
+	string source_id = 3;
+	string source_version = 4;
+	string access_scope_hash = 5;
+}
+
+message RunBudget {
+	int64 max_model_attempts = 1;
+	int64 max_tool_calls = 2;
+	int64 max_iterations = 3;
+	int64 max_replans = 4;
+	int64 max_supplements = 5;
+	int64 max_quality_repairs = 6;
+	int64 max_input_tokens = 7;
+	int64 max_output_tokens = 8;
+	int64 max_elapsed_ms = 9;
+}
+
+message BudgetDelta {
+	int64 model_attempts = 1;
+	int64 tool_calls = 2;
+	int64 iterations = 3;
+	int64 replans = 4;
+	int64 supplements = 5;
+	int64 quality_repairs = 6;
+	int64 input_tokens = 7;
+	int64 output_tokens = 8;
+	int64 elapsed_ms = 9;
+}
+
+message ConsumedBudget {
+	int64 model_attempts = 1;
+	int64 tool_calls = 2;
+	int64 iterations = 3;
+	int64 replans = 4;
+	int64 supplements = 5;
+	int64 quality_repairs = 6;
+	int64 input_tokens = 7;
+	int64 output_tokens = 8;
+	int64 elapsed_ms = 9;
+}
+
+message RunLedgerEntry {
+	string entry_id = 1;
+	string operation_key = 2;
+	string entry_kind = 3;
+	string operation = 4;
+	string request_hash = 5;
+	string status = 6;
+	BudgetDelta reservation = 7;
+	BudgetDelta consumption = 8;
+	string output_artifact_key = 9;
+	string output_artifact_hash = 10;
+	repeated string evidence_refs = 11;
+	string error_category = 12;
+	bool retryable = 13;
+}
+
+message RunLedgerEvent {
+	string event_type = 1;
+	RunLedgerEntry entry = 2;
 }
 
 message GetRunContextResponse { AgentRunInput input = 1; }
@@ -102,6 +228,11 @@ message EvidenceItem {
   string locator = 3;
   string excerpt_hash = 4;
   string excerpt = 5;
+	string source_kind = 6;
+	string binding_id = 7;
+	string source_version = 8;
+	string access_scope_hash = 9;
+	string outcome_kind = 10;
 }
 
 message EvidenceReceipt { int64 accepted_count = 1; }
@@ -129,6 +260,23 @@ message SubmittedDraftReceipt {
 	string content_hash = 2;
 	int64 task_version = 3;
 	bytes content = 4;
+}
+
+message RunArtifactIdentity {
+	string artifact_key = 1;
+	string artifact_type = 2;
+	int64 generation = 3;
+	string request_hash = 4;
+	string content_hash = 5;
+}
+
+message ResumeStateSummary {
+	string checkpoint_content_hash = 1;
+	int64 terminal_model_attempt_count = 2;
+	int64 evidence_count = 3;
+	repeated string evidence_refs = 4;
+	int64 artifact_count = 5;
+	repeated RunArtifactIdentity artifacts = 6;
 }
 
 message SaveRunArtifactRequest {
@@ -164,6 +312,31 @@ message SubmitDraftRequest {
 
 message DraftReceipt { int64 task_version = 1; }
 message SubmitDraftResponse { DraftReceipt receipt = 1; }
+
+message RunOutput {
+	string schema_version = 1;
+	string output_key = 2;
+	RunOutputKind output_kind = 3;
+	RunPurpose run_purpose = 4;
+	string scope_hash = 5;
+	int64 expected_task_version = 6;
+	string content_hash = 7;
+	bytes payload = 8;
+}
+
+message SubmitRunOutputRequest {
+	LeaseContext lease = 1;
+	RunOutput output = 2;
+	RequestMeta meta = 3;
+}
+
+message RunOutputReceipt {
+	string output_key = 1;
+	string content_hash = 2;
+	int64 task_version = 3;
+}
+
+message SubmitRunOutputResponse { RunOutputReceipt receipt = 1; }
 
 message CompleteRunRequest {
 	LeaseContext lease = 1;

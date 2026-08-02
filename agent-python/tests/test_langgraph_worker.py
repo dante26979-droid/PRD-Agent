@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import threading
 import time
 
 from agent.capability import RepositorySearchHit
 from agent.checkpoint import CheckpointCodec
+from agent.bootstrap import DeterministicAgentLoop
 from agent.graph import LangGraphAgentLoop
 from agent.investigation import InvestigationBudget
 from agent.model import ModelResponse
@@ -13,6 +15,14 @@ from agent.quality import DraftQualityPolicy
 from agent.v1 import agent_execution_pb2 as execution
 from agent.v1 import agent_worker_pb2 as worker
 from agent.worker_server import AgentWorkerServer
+from agent.unit.models import (
+    ConfirmedUnitContext,
+    OutlineCandidate,
+    OutlineNode,
+    OutlineUnit,
+    RunPurpose,
+    UnitScope,
+)
 
 
 class ActiveContext:
@@ -81,7 +91,7 @@ def _request():
             owner_id="owner-1",
             task_id="task-1",
             task_message="生成订单筛选 PRD",
-            workflow_version="agent-runtime.v2",
+            workflow_version="agent-runtime.v1",
             task_version=1,
             repository_binding_id="binding-1",
             repository_revision="a" * 40,
@@ -287,3 +297,86 @@ def test_worker_restart_uses_ready_snapshot_status_and_replays_only_draft():
     assert resumed_events[1].draft_patch == first_draft
     assert resumed_model.calls == 0
     assert resumed_gateway.calls == 0
+
+
+def test_real_worker_path_revises_regrounds_and_rechecks_before_unit_patch():
+    base_markdown = "# 目标\n\n旧目标。"
+    base_hash = hashlib.sha256(base_markdown.encode()).hexdigest()
+    outline = OutlineCandidate(
+        title="PRD",
+        requirement_size="SMALL",
+        nodes=(OutlineNode("goal", "目标", 10, "goal"),),
+        units=(OutlineUnit("goal", "目标", 10, ("goal",)),),
+    )
+    execution_input = {
+        "requirement_brief": {"text": "补充目标与验收标准", "required_content": ["目标"]},
+        "locked_outline": outline.as_dict(),
+    }
+    scope = UnitScope(
+        purpose=RunPurpose.REVISE_UNIT,
+        outline_id="outline-1",
+        outline_version=1,
+        outline_hash=outline.content_hash,
+        current_unit_key="goal",
+        current_unit_title="目标",
+        current_unit_ordinal=10,
+        section_node_keys=("goal",),
+        confirmed_context=(
+            ConfirmedUnitContext("goal", 1, base_hash, markdown=base_markdown),
+        ),
+        reopened_unit_keys=("goal",),
+        base_unit_hash=base_hash,
+        user_feedback="补充可验证目标",
+        requirement_brief_ref="execution-input-json:"
+        + json.dumps(execution_input, ensure_ascii=False, separators=(",", ":")),
+    )
+    request = _request()
+    request.input.workflow_version = "agent-runtime.v4"
+    request.input.task_version = 7
+    request.input.run_purpose = execution.RUN_PURPOSE_REVISE_UNIT
+    request.input.unit_scope.CopyFrom(
+        execution.UnitScope(
+            schema_version=scope.schema_version,
+            outline_id=scope.outline_id,
+            outline_version=scope.outline_version,
+            outline_hash=scope.outline_hash,
+            current_unit_key=scope.current_unit_key,
+            current_unit_title=scope.current_unit_title,
+            current_unit_ordinal=scope.current_unit_ordinal,
+            section_node_keys=scope.section_node_keys,
+            confirmed_context=(
+                execution.ConfirmedUnitContext(
+                    unit_key="goal",
+                    unit_version=1,
+                    content_hash=base_hash,
+                    markdown=base_markdown,
+                ),
+            ),
+            reopened_unit_keys=scope.reopened_unit_keys,
+            base_unit_hash=scope.base_unit_hash,
+            user_feedback=scope.user_feedback,
+            requirement_brief_ref=scope.requirement_brief_ref,
+            scope_hash=scope.scope_hash,
+        )
+    )
+
+    events = list(
+        AgentWorkerServer(
+            DeterministicAgentLoop(CheckpointCodec(), DraftQualityPolicy()),
+            worker_id="worker-1",
+        ).ExecuteRun(request, ActiveContext())
+    )
+
+    output_event = next(item for item in events if item.event_type == "RUN_OUTPUT_SUBMITTED")
+    output = output_event.run_output
+    payload = json.loads(output.payload)
+    assert output.output_kind == execution.RUN_OUTPUT_KIND_UNIT_PATCH
+    assert output.run_purpose == execution.RUN_PURPOSE_REVISE_UNIT
+    assert output.expected_task_version == 7
+    assert payload["base_content_hash"] == base_hash
+    assert payload["requires_regrounding"] is False
+    assert payload["claim_generation"] == 1
+    assert payload["grounding_generation"] == 1
+    assert payload["quality_generation"] == 1
+    assert payload["quality_report"]["outcome"] == "QUALITY_PASSED"
+    assert events[-1].event_type == "RUN_COMPLETED"

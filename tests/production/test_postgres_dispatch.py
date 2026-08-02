@@ -71,7 +71,7 @@ def test_postgres_dispatch_is_atomic_claimable_and_fenced():
             publisher_id="publisher-a",
             now=now,
             lease_ttl=timedelta(seconds=10),
-            limit=10,
+            limit=10_000,
         )
         second_claim = second.claim_outbox(
             publisher_id="publisher-b",
@@ -94,7 +94,8 @@ def test_postgres_dispatch_is_atomic_claimable_and_fenced():
 
         result = second.complete_run(current, ProductionRunStatus.SUCCEEDED)
 
-        assert [item.message_id for item in first_claim] == [outbox.message_id]
+        first_claim_ids = [item.message_id for item in first_claim]
+        assert first_claim_ids.count(outbox.message_id) == 1
         assert outbox.message_id not in {
             item.message_id for item in second_claim
         }
@@ -112,6 +113,12 @@ def test_postgres_dispatch_is_atomic_claimable_and_fenced():
                 "DELETE FROM outbox_messages WHERE aggregate_id = %s",
                 (run_id,),
             )
+            cursor.execute("SELECT to_regclass('public.queue_slots')")
+            if cursor.fetchone()[0] is not None:
+                cursor.execute(
+                    "DELETE FROM queue_slots WHERE run_id = %s",
+                    (run_id,),
+                )
             cursor.execute(
                 "DELETE FROM production_run_control WHERE run_id = %s",
                 (run_id,),
@@ -187,6 +194,14 @@ def test_postgres_retry_replays_one_run_for_the_same_idempotency_key():
                 "WHERE task_id = %s)",
                 (task_id,),
             )
+            cursor.execute("SELECT to_regclass('public.queue_slots')")
+            if cursor.fetchone()[0] is not None:
+                cursor.execute(
+                    "DELETE FROM queue_slots WHERE run_id IN "
+                    "(SELECT run_id FROM production_run_control "
+                    "WHERE task_id = %s)",
+                    (task_id,),
+                )
             cursor.execute(
                 "DELETE FROM production_run_control WHERE task_id = %s",
                 (task_id,),

@@ -73,3 +73,48 @@ export interface PublishView {
   retryable: boolean;
   updated_at: string;
 }
+
+export interface ReviewOutline {
+  outline_id: string;
+  outline_version_id: string;
+  status: "DRAFT" | "LOCKED";
+  content_hash: string;
+  candidate: {
+    title: string;
+    requirement_size: string;
+    units: Array<{ unit_key: string; title: string; ordinal: number; depends_on: string[] }>;
+  };
+}
+
+export interface ReviewUnit {
+  unit_id: string;
+  unit_version_id: string;
+  unit_key: string;
+  title: string;
+  order: number;
+  markdown: string;
+  content_hash: string;
+  confirmation_status: "PENDING" | "REVIEWING" | "CONFIRMED" | "REOPENED";
+  depends_on: string[];
+}
+
+export interface FullReviewView {
+  report_id: string;
+  disposition: "PASSED" | "NEEDS_REVISION";
+  content_hash: string;
+  payload?: {
+    issues?: Array<{ code?: string; message?: string; affected_unit_keys?: string[] }>;
+  };
+}
+
+export interface ReviewView {
+  workflow_version: "agent-runtime.v1" | "agent-runtime.v4";
+  task: ControlTask;
+  outline?: ReviewOutline;
+  units: ReviewUnit[];
+  full_review?: FullReviewView;
+  current_unit_key?: string;
+  document_markdown?: string;
+  publish_readiness: { ready: boolean; reasons: string[] };
+  available_actions: Array<"CONFIRM_OUTLINE" | "CONFIRM_UNIT" | "REOPEN_UNIT" | "PUBLISH">;
+}

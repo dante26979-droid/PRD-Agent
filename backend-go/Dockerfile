@@ -14,6 +14,7 @@ RUN runtime_arch="${TARGETARCH:-$(go env GOARCH)}" \
     && CGO_ENABLED=0 GOOS="${TARGETOS}" GOARCH="${runtime_arch}" go build -trimpath -ldflags="-s -w" -o /out/prd-agent-go-api ./cmd/api \
     && CGO_ENABLED=0 GOOS="${TARGETOS}" GOARCH="${runtime_arch}" go build -trimpath -ldflags="-s -w" -o /out/prd-agent-go-migrate ./cmd/migrate \
     && CGO_ENABLED=0 GOOS="${TARGETOS}" GOARCH="${runtime_arch}" go build -trimpath -ldflags="-s -w" -o /out/prd-agent-go-maintenance ./cmd/maintenance \
+    && CGO_ENABLED=0 GOOS="${TARGETOS}" GOARCH="${runtime_arch}" go build -trimpath -ldflags="-s -w" -o /out/prd-agent-go-rolloutctl ./cmd/rolloutctl \
     && CGO_ENABLED=0 GOOS="${TARGETOS}" GOARCH="${runtime_arch}" go build -trimpath -ldflags="-s -w" -o /out/prd-agent-go-integration ./cmd/integration \
     && CGO_ENABLED=0 GOOS="${TARGETOS}" GOARCH="${runtime_arch}" go build -trimpath -ldflags="-s -w" -o /out/prd-agent-go-capability ./cmd/capability
 
@@ -25,6 +26,7 @@ COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certifica
 COPY --from=build /out/prd-agent-go-api /app/prd-agent-go-api
 COPY --from=build /out/prd-agent-go-migrate /app/prd-agent-go-migrate
 COPY --from=build /out/prd-agent-go-maintenance /app/prd-agent-go-maintenance
+COPY --from=build /out/prd-agent-go-rolloutctl /app/prd-agent-go-rolloutctl
 COPY --from=build /out/prd-agent-go-integration /app/prd-agent-go-integration
 COPY --from=build /out/prd-agent-go-capability /app/prd-agent-go-capability
 COPY --from=build /src/backend-go/db/migrations /app/db/migrations

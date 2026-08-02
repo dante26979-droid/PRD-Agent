@@ -178,7 +178,16 @@ PYTHONPATH=src python3 -m prd_agent.eval run-baseline \
 PYTHONPATH=src python3 -m prd_agent.eval run-baseline \
   --manifest eval/cases/manifest.json \
   --config eval/configs/bounded_investigation.json
+
+PYTHONPATH=src:agent-python venv/bin/python -m prd_agent.eval run-baseline \
+  --manifest eval/cases/manifest.json \
+  --config eval/configs/langgraph_v1_characterization.json \
+  --output-dir eval/reports
 ```
+
+The LangGraph characterization configuration runs the production Agent loop with fixed
+offline adapters. It emits versioned, content-safe traces and sanitized reports marked
+`deterministic_only`; it does not measure remote-model quality.
 
 ## Repository evidence
 

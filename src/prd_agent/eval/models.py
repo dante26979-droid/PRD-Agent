@@ -14,10 +14,51 @@ from typing import Any, Mapping
 from prd_agent.model_api.models import ModelResponse
 
 
-NEED_TYPES = frozenset({"OPTIONAL", "REQUIRED", "NOT_REQUIRED"})
+NEED_TYPES = frozenset({"NONE", "OPTIONAL", "REQUIRED", "NOT_REQUIRED"})
 
 
 from prd_agent.hashing import canonical_json, sha256_json
+
+
+@dataclass(frozen=True)
+class AgentEvalMetadata:
+    """Typed metadata envelope for LangGraph evaluation runs."""
+
+    measurement_mode: str
+    deterministic_only: bool
+    workflow_version: str
+    route: str
+    trace: Mapping[str, Any]
+
+    def __post_init__(self) -> None:
+        if not self.measurement_mode or not self.workflow_version or not self.route:
+            raise ValueError("agent eval metadata requires mode, workflow and route")
+        try:
+            canonical_json(self.as_dict())
+        except (TypeError, ValueError) as error:
+            raise ValueError("agent eval metadata must be JSON-safe") from error
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "measurement_mode": self.measurement_mode,
+            "deterministic_only": self.deterministic_only,
+            "workflow_version": self.workflow_version,
+            "route": self.route,
+            "trace": dict(self.trace),
+        }
+
+    @classmethod
+    def from_dict(cls, value: Mapping[str, Any]) -> "AgentEvalMetadata":
+        trace = value.get("trace")
+        if not isinstance(trace, Mapping):
+            raise ValueError("agent eval metadata requires a trace")
+        return cls(
+            measurement_mode=str(value.get("measurement_mode", "")),
+            deterministic_only=bool(value.get("deterministic_only", False)),
+            workflow_version=str(value.get("workflow_version", "")),
+            route=str(value.get("route", "")),
+            trace=dict(trace),
+        )
 
 
 @dataclass(frozen=True)
@@ -33,6 +74,8 @@ class InformationNeed:
         reason = str(value.get("reason", ""))
         if kind not in NEED_TYPES or not category or not reason:
             raise ValueError("information need requires valid type, category and reason")
+        if kind == "NOT_REQUIRED":
+            kind = "NONE"
         return cls(kind=kind, category=category, reason=reason)
 
 
