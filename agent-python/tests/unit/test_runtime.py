@@ -97,3 +97,81 @@ def test_scoped_production_path_persists_claim_and_grounding_artifacts() -> None
         "UNIT_CLAIM_SET",
         "UNIT_GROUNDING_REPORT",
     ]
+
+
+def test_reviewable_runtime_normalizes_provider_outline_envelope() -> None:
+    scope = UnitScope(purpose=RunPurpose.PLAN_OUTLINE)
+    scope_proto = proto.UnitScope(
+        schema_version=scope.schema_version,
+        requirement_brief_ref=scope.requirement_brief_ref,
+        requirement_brief_hash=scope.requirement_brief_hash,
+        scope_hash=scope.scope_hash,
+    )
+    context = RunContext(
+        run_id="run-outline",
+        tenant_id="tenant",
+        owner_id="owner",
+        task_id="task",
+        task_message="最小单页部署验证",
+        workflow_version="agent-runtime.v4",
+        checkpoint=b"",
+        task_version=1,
+        run_purpose=proto.RUN_PURPOSE_PLAN_OUTLINE,
+        unit_scope=scope_proto,
+    )
+
+    class ProviderEnvelopeModel:
+        request: dict[str, object] | None = None
+
+        def complete(self, system_prompt: str, user_prompt: str):
+            self.request = json.loads(user_prompt)
+            return type(
+                "Response",
+                (),
+                {
+                    "output": json.dumps(
+                        {
+                            "schema_version": "outline-candidate.v1",
+                            "outline": {
+                                "units": [
+                                    {
+                                        "key": "unit-1",
+                                        "title": "部署验证",
+                                        "ordinal": 0,
+                                        "dependencies": [],
+                                        "content": {
+                                            "goal": "验证部署",
+                                            "acceptance_criteria": ["HTTP 200"],
+                                        },
+                                    }
+                                ]
+                            },
+                        },
+                        ensure_ascii=False,
+                    ),
+                    "token_usage": {"total_tokens": 1},
+                    "model_id": "provider-model",
+                    "finish_reason": "stop",
+                    "provider_request_id": None,
+                    "latency_ms": 1,
+                },
+            )()
+
+    model = ProviderEnvelopeModel()
+    result = LangGraphAgentLoop(
+        model=model,
+        checkpoint_codec=CheckpointCodec(),
+        quality_policy=DraftQualityPolicy(),
+    )(context)
+
+    assert result.run_output is not None
+    payload = json.loads(result.run_output.payload)
+    assert payload["schema_version"] == "outline-candidate.v1"
+    assert payload["title"] == "最小单页部署验证"
+    assert payload["requirement_size"] == "SMALL"
+    assert payload["nodes"][0]["node_key"] == "unit-1"
+    assert payload["units"][0]["node_keys"] == ["unit-1"]
+    assert model.request is not None
+    contract = model.request["output_contract"]
+    assert isinstance(contract, dict)
+    assert "nodes" in contract
