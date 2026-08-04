@@ -95,9 +95,17 @@ class LoopSnapshot:
                     key: int(state.get(key, 0))
                     for key in (
                         "model_attempt_count",
+                        "business_model_attempt_count",
+                        "context_compaction_attempt_count",
                         "iteration",
                         "tool_call_count",
                         "token_usage",
+                        "context_compaction_token_usage",
+                        "context_tokens_before",
+                        "context_tokens_after",
+                        "memory_recall_count",
+                        "memory_record_count",
+                        "memory_conflict_count",
                         "replan_count",
                         "no_progress_rounds",
                         "supplement_count",

@@ -153,6 +153,11 @@ type AgentRunInput struct {
 	ShadowWorkflow         WorkflowVersion
 	CandidatePolicyVersion string
 	AssignmentHash         string
+	MemorySpaceID          string
+	MemoryWatermark        int64
+	MemoryPolicyVersion    string
+	MemoryAccessScopeHash  string
+	MemoryAssignmentHash   string
 }
 
 type ExecutionLedgerVersion string
@@ -165,6 +170,7 @@ const (
 	LedgerEntryModel           LedgerEntryKind = "MODEL"
 	LedgerEntryCapability      LedgerEntryKind = "CAPABILITY"
 	LedgerEntryLocalTransition LedgerEntryKind = "LOCAL_TRANSITION"
+	LedgerEntryLocalDerivation LedgerEntryKind = "LOCAL_DERIVATION"
 )
 
 type LedgerStatus string

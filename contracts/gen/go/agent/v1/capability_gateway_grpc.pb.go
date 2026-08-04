@@ -19,12 +19,13 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	CapabilityGatewayService_ReadRepositoryTree_FullMethodName = "/agent.v1.CapabilityGatewayService/ReadRepositoryTree"
-	CapabilityGatewayService_ReadRepositoryFile_FullMethodName = "/agent.v1.CapabilityGatewayService/ReadRepositoryFile"
-	CapabilityGatewayService_SearchRepository_FullMethodName   = "/agent.v1.CapabilityGatewayService/SearchRepository"
-	CapabilityGatewayService_SearchPrdCatalog_FullMethodName   = "/agent.v1.CapabilityGatewayService/SearchPrdCatalog"
-	CapabilityGatewayService_FetchPrdSections_FullMethodName   = "/agent.v1.CapabilityGatewayService/FetchPrdSections"
-	CapabilityGatewayService_CreateExportIntent_FullMethodName = "/agent.v1.CapabilityGatewayService/CreateExportIntent"
+	CapabilityGatewayService_ReadRepositoryTree_FullMethodName  = "/agent.v1.CapabilityGatewayService/ReadRepositoryTree"
+	CapabilityGatewayService_ReadRepositoryFile_FullMethodName  = "/agent.v1.CapabilityGatewayService/ReadRepositoryFile"
+	CapabilityGatewayService_SearchRepository_FullMethodName    = "/agent.v1.CapabilityGatewayService/SearchRepository"
+	CapabilityGatewayService_SearchPrdCatalog_FullMethodName    = "/agent.v1.CapabilityGatewayService/SearchPrdCatalog"
+	CapabilityGatewayService_FetchPrdSections_FullMethodName    = "/agent.v1.CapabilityGatewayService/FetchPrdSections"
+	CapabilityGatewayService_CreateExportIntent_FullMethodName  = "/agent.v1.CapabilityGatewayService/CreateExportIntent"
+	CapabilityGatewayService_SearchProjectMemory_FullMethodName = "/agent.v1.CapabilityGatewayService/SearchProjectMemory"
 )
 
 // CapabilityGatewayServiceClient is the client API for CapabilityGatewayService service.
@@ -37,6 +38,7 @@ type CapabilityGatewayServiceClient interface {
 	SearchPrdCatalog(ctx context.Context, in *SearchPrdCatalogRequest, opts ...grpc.CallOption) (*SearchPrdCatalogResponse, error)
 	FetchPrdSections(ctx context.Context, in *FetchPrdSectionsRequest, opts ...grpc.CallOption) (*FetchPrdSectionsResponse, error)
 	CreateExportIntent(ctx context.Context, in *CreateExportIntentRequest, opts ...grpc.CallOption) (*CreateExportIntentResponse, error)
+	SearchProjectMemory(ctx context.Context, in *SearchProjectMemoryRequest, opts ...grpc.CallOption) (*SearchProjectMemoryResponse, error)
 }
 
 type capabilityGatewayServiceClient struct {
@@ -107,6 +109,16 @@ func (c *capabilityGatewayServiceClient) CreateExportIntent(ctx context.Context,
 	return out, nil
 }
 
+func (c *capabilityGatewayServiceClient) SearchProjectMemory(ctx context.Context, in *SearchProjectMemoryRequest, opts ...grpc.CallOption) (*SearchProjectMemoryResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SearchProjectMemoryResponse)
+	err := c.cc.Invoke(ctx, CapabilityGatewayService_SearchProjectMemory_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // CapabilityGatewayServiceServer is the server API for CapabilityGatewayService service.
 // All implementations must embed UnimplementedCapabilityGatewayServiceServer
 // for forward compatibility.
@@ -117,6 +129,7 @@ type CapabilityGatewayServiceServer interface {
 	SearchPrdCatalog(context.Context, *SearchPrdCatalogRequest) (*SearchPrdCatalogResponse, error)
 	FetchPrdSections(context.Context, *FetchPrdSectionsRequest) (*FetchPrdSectionsResponse, error)
 	CreateExportIntent(context.Context, *CreateExportIntentRequest) (*CreateExportIntentResponse, error)
+	SearchProjectMemory(context.Context, *SearchProjectMemoryRequest) (*SearchProjectMemoryResponse, error)
 	mustEmbedUnimplementedCapabilityGatewayServiceServer()
 }
 
@@ -144,6 +157,9 @@ func (UnimplementedCapabilityGatewayServiceServer) FetchPrdSections(context.Cont
 }
 func (UnimplementedCapabilityGatewayServiceServer) CreateExportIntent(context.Context, *CreateExportIntentRequest) (*CreateExportIntentResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method CreateExportIntent not implemented")
+}
+func (UnimplementedCapabilityGatewayServiceServer) SearchProjectMemory(context.Context, *SearchProjectMemoryRequest) (*SearchProjectMemoryResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SearchProjectMemory not implemented")
 }
 func (UnimplementedCapabilityGatewayServiceServer) mustEmbedUnimplementedCapabilityGatewayServiceServer() {
 }
@@ -275,6 +291,24 @@ func _CapabilityGatewayService_CreateExportIntent_Handler(srv interface{}, ctx c
 	return interceptor(ctx, in, info, handler)
 }
 
+func _CapabilityGatewayService_SearchProjectMemory_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SearchProjectMemoryRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CapabilityGatewayServiceServer).SearchProjectMemory(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CapabilityGatewayService_SearchProjectMemory_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CapabilityGatewayServiceServer).SearchProjectMemory(ctx, req.(*SearchProjectMemoryRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // CapabilityGatewayService_ServiceDesc is the grpc.ServiceDesc for CapabilityGatewayService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -305,6 +339,10 @@ var CapabilityGatewayService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "CreateExportIntent",
 			Handler:    _CapabilityGatewayService_CreateExportIntent_Handler,
+		},
+		{
+			MethodName: "SearchProjectMemory",
+			Handler:    _CapabilityGatewayService_SearchProjectMemory_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

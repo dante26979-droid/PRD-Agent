@@ -128,7 +128,13 @@ func (s *PostgresStore) Health(ctx context.Context) error {
 		to_regclass(current_schema() || '.go_rollout_stage_state') IS NOT NULL AND
 		to_regclass(current_schema() || '.go_rollout_policies') IS NOT NULL AND
 		to_regclass(current_schema() || '.go_rollout_commands') IS NOT NULL AND
-		to_regclass(current_schema() || '.go_rollout_readiness_records') IS NOT NULL`).Scan(&ready); err != nil {
+		to_regclass(current_schema() || '.go_rollout_readiness_records') IS NOT NULL AND
+		to_regclass(current_schema() || '.go_memory_spaces') IS NOT NULL AND
+		to_regclass(current_schema() || '.go_run_memory_assignments') IS NOT NULL AND
+		to_regclass(current_schema() || '.go_project_memory_records') IS NOT NULL AND
+		to_regclass(current_schema() || '.go_project_memory_versions') IS NOT NULL AND
+		to_regclass(current_schema() || '.go_project_memory_candidates') IS NOT NULL AND
+		to_regclass(current_schema() || '.go_project_memory_conflicts') IS NOT NULL`).Scan(&ready); err != nil {
 		return err
 	}
 	if !ready {
@@ -216,6 +222,9 @@ func (s *PostgresStore) CreateTaskWithRun(ctx context.Context, tenantID, ownerID
 		return runcontrol.TaskWithRun{}, err
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO go_agent_runs (run_id, task_id, tenant_id, owner_id, workflow_version, execution_ledger_version, status, queue_slot_acquired, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,NULLIF($6,''),$7,$8,$9,$9)`, runID, taskID, tenantID, ownerID, runWorkflowVersion, s.defaultExecutionLedgerVersion, status, admitted, now); err != nil {
+		return runcontrol.TaskWithRun{}, err
+	}
+	if err := ensureDefaultMemoryAssignmentTx(ctx, tx, taskID, runID, tenantID, ownerID, now); err != nil {
 		return runcontrol.TaskWithRun{}, err
 	}
 	if runWorkflowVersion == runcontrol.WorkflowVersionV4 {
@@ -336,6 +345,9 @@ func (s *PostgresStore) RetryTask(ctx context.Context, tenantID, ownerID, taskID
 		return runcontrol.AgentRun{}, assignmentErr
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO go_agent_runs (run_id, task_id, tenant_id, owner_id, workflow_version, execution_ledger_version, status, queue_slot_acquired, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,NULLIF($6,''),$7,$8,$9,$9)`, runID, taskID, tenantID, ownerID, runWorkflowVersion, s.defaultExecutionLedgerVersion, status, admitted, now); err != nil {
+		return runcontrol.AgentRun{}, err
+	}
+	if err := assignTaskMemoryToRunTx(ctx, tx, taskID, runID, tenantID, ownerID, now); err != nil {
 		return runcontrol.AgentRun{}, err
 	}
 	if inheritedScope, scopeErr := loadLatestUnitScopeForTask(ctx, tx, taskID); scopeErr == nil {

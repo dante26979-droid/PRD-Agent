@@ -194,6 +194,11 @@ class AgentWorkerServer(worker_rpc.AgentWorkerServiceServicer):
                 shadow_workflow_version=request.input.shadow_workflow_version,
                 candidate_policy_version=request.input.candidate_policy_version,
                 assignment_hash=request.input.assignment_hash,
+                memory_space_id=request.input.memory_space_id,
+                memory_watermark=request.input.memory_watermark,
+                memory_policy_version=request.input.memory_policy_version,
+                memory_access_scope_hash=request.input.memory_access_scope_hash,
+                memory_assignment_hash=request.input.memory_assignment_hash,
             )
             try:
                 sequence = 2

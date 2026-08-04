@@ -36,6 +36,51 @@ then copy the `PRD_AGENT_LLM_*` settings from `.env.example`. The deterministic
 offline model remains available only to local development, tests and evaluation;
 staging and production fail readiness without the remote model configuration.
 
+### Context compression
+
+The LangGraph runtime has a Ledger-backed context preparation seam for every
+remote model call, including information-need planning and scoped outline/unit
+generation. It builds an immutable `CONTEXT_PACK` artifact, applies deterministic
+operation-specific projection first, and can optionally use a separately budgeted
+model call for semantic compression. The original payload remains authoritative;
+semantic output may omit existing values but cannot change mandatory fields or
+introduce new identifiers.
+
+Compression is disabled by default. Configure the token limits in `.env`, then
+roll out with `PRD_AGENT_CONTEXT_POLICY_MODE=shadow` before switching to
+`enforce`. Semantic compression is independently gated by
+`PRD_AGENT_CONTEXT_SEMANTIC_COMPACTION=true`. Non-off modes require
+`PRD_AGENT_AGENT_LOOP_MODE=langgraph`; startup fails instead of silently using
+the legacy model path. Existing PostgreSQL deployments must apply migration
+`0022_context_pack_ledger_kind.sql` through the normal migration runner.
+
+The detailed contracts, failure semantics, rollout gates, and compression
+rationale are documented in
+[`docs/superpowers/plans/2026-08-02-agent-context-compaction-design.md`](docs/superpowers/plans/2026-08-02-agent-context-compaction-design.md).
+
+### Project memory
+
+Project memory is owned by the Go/PostgreSQL control plane. Agents and API
+clients create review candidates; only an explicit user confirmation promotes a
+candidate into an immutable memory version. Every run captures a fixed memory
+space, epoch watermark, access-scope hash and assignment hash. Capability
+Gateway recall is therefore owner-scoped, permission-checked and reproducible:
+memory confirmed after a run starts is invisible to that run.
+
+The LangGraph model seam records recall as a `CAPABILITY` Ledger entry and the
+bounded `PROJECT_MEMORY_BUNDLE` as a `LOCAL_DERIVATION`. In `shadow` mode these
+artifacts are evaluated without changing model input. In `enforce` mode the
+bundle becomes a named Context Pack source; open conflicts are returned
+together and never silently resolved. Configure rollout with
+`PRD_AGENT_PROJECT_MEMORY_MODE`, starting with `shadow`. Existing PostgreSQL
+deployments must apply `0023_project_memory.sql`.
+
+The owner-scoped API is under `/api/v1/memory-spaces`: it supports space and
+candidate creation, candidate confirmation/rejection, record listing/search,
+and version-checked revocation. All mutations require `Idempotency-Key`.
+Detailed authority, lifecycle, failure and security contracts are in
+[`docs/superpowers/plans/2026-08-03-project-memory-tool-design.md`](docs/superpowers/plans/2026-08-03-project-memory-tool-design.md).
+
 For a PostgreSQL volume created before Step 2, apply `infra/local/schema.sql` once; Docker's
 initialization directory only runs for a new volume.
 For a database created before Step 4, also apply

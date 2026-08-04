@@ -6,6 +6,9 @@ from enum import StrEnum
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from agent.context_pack import ContextPolicy
+from agent.project_memory import ProjectMemoryPolicy
+
 
 class DeploymentEnvironment(StrEnum):
     LOCAL = "local"
@@ -46,13 +49,26 @@ class AgentSettings:
     max_run_artifact_bytes: int
     max_evidence_items: int
     event_ack_timeout_seconds: int
+    context_policy: ContextPolicy
+    project_memory_policy: ProjectMemoryPolicy = ProjectMemoryPolicy()
 
     @classmethod
     def load(cls, *, require_service_identity: bool = False) -> "AgentSettings":
         environment = _environment()
+        loop_mode = _loop_mode()
+        context_policy = ContextPolicy.from_environment()
+        project_memory_policy = ProjectMemoryPolicy.from_environment()
+        if loop_mode != "langgraph" and context_policy.mode != "off":
+            raise RuntimeError(
+                "context compression requires PRD_AGENT_AGENT_LOOP_MODE=langgraph"
+            )
+        if loop_mode != "langgraph" and project_memory_policy.mode != "off":
+            raise RuntimeError(
+                "project memory requires PRD_AGENT_AGENT_LOOP_MODE=langgraph"
+            )
         return cls(
             environment=environment,
-            loop_mode=_loop_mode(),
+            loop_mode=loop_mode,
             advanced_loop_mode=_advanced_loop_mode(),
             llm=_llm_settings(environment),
             capability_target=_optional("PRD_AGENT_CAPABILITY_GATEWAY_TARGET"),
@@ -90,6 +106,8 @@ class AgentSettings:
                 minimum=1,
                 maximum=300,
             ),
+            context_policy=context_policy,
+            project_memory_policy=project_memory_policy,
         )
 
 

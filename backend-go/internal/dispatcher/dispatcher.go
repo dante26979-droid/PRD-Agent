@@ -485,7 +485,7 @@ func (d *Dispatcher) markUnknown(ctx context.Context, run runcontrol.AgentRun, r
 }
 
 func requestHash(dispatchID string, input runcontrol.AgentRunInput) string {
-	digest := sha256.Sum256([]byte(dispatchID + "\x00" + input.Run.RunID + "\x00" + input.WorkflowVersion + "\x00" + input.ExecutionLedgerVersion + "\x00" + string(input.RunPurpose) + "\x00" + input.UnitScope.ScopeHash + "\x00" + input.AssignmentHash + "\x00" + string(input.Checkpoint)))
+	digest := sha256.Sum256([]byte(dispatchID + "\x00" + input.Run.RunID + "\x00" + input.WorkflowVersion + "\x00" + input.ExecutionLedgerVersion + "\x00" + string(input.RunPurpose) + "\x00" + input.UnitScope.ScopeHash + "\x00" + input.AssignmentHash + "\x00" + input.MemoryAssignmentHash + "\x00" + string(input.Checkpoint)))
 	return hex.EncodeToString(digest[:])
 }
 
@@ -498,7 +498,7 @@ func leaseToProto(lease runcontrol.LeaseContext) *agentv1.LeaseContext {
 }
 
 func inputToProto(input runcontrol.AgentRunInput) *agentv1.AgentRunInput {
-	value := &agentv1.AgentRunInput{RunId: input.Run.RunID, TenantId: input.Run.TenantID, OwnerId: input.Run.OwnerID, TaskId: input.Run.TaskID, TaskMessage: input.TaskMessage, WorkflowVersion: input.WorkflowVersion, Checkpoint: input.Checkpoint, CheckpointSequence: input.CheckpointSequence, TaskVersion: int64(input.TaskVersion), RepositoryBindingId: input.RepositoryBindingID, RepositoryRevision: input.RepositoryRevision, EvaluationMode: string(input.EvaluationMode), AuthoritativeWorkflowVersion: string(input.AuthoritativeWorkflow), ShadowWorkflowVersion: string(input.ShadowWorkflow), CandidatePolicyVersion: input.CandidatePolicyVersion, AssignmentHash: input.AssignmentHash}
+	value := &agentv1.AgentRunInput{RunId: input.Run.RunID, TenantId: input.Run.TenantID, OwnerId: input.Run.OwnerID, TaskId: input.Run.TaskID, TaskMessage: input.TaskMessage, WorkflowVersion: input.WorkflowVersion, Checkpoint: input.Checkpoint, CheckpointSequence: input.CheckpointSequence, TaskVersion: int64(input.TaskVersion), RepositoryBindingId: input.RepositoryBindingID, RepositoryRevision: input.RepositoryRevision, EvaluationMode: string(input.EvaluationMode), AuthoritativeWorkflowVersion: string(input.AuthoritativeWorkflow), ShadowWorkflowVersion: string(input.ShadowWorkflow), CandidatePolicyVersion: input.CandidatePolicyVersion, AssignmentHash: input.AssignmentHash, MemorySpaceId: input.MemorySpaceID, MemoryWatermark: input.MemoryWatermark, MemoryPolicyVersion: input.MemoryPolicyVersion, MemoryAccessScopeHash: input.MemoryAccessScopeHash, MemoryAssignmentHash: input.MemoryAssignmentHash}
 	if input.RunPurpose.Valid() {
 		value.RunPurpose = runPurposeToProto(input.RunPurpose)
 		value.UnitScope = unitScopeToProto(input.UnitScope)

@@ -396,7 +396,7 @@ func elapsedBudgetExhausted(ctx context.Context, tx pgx.Tx, runID string, policy
 }
 
 func validateLedgerEntry(entry runcontrol.LedgerEntry) error {
-	if entry.OperationKey == "" || entry.Operation == "" || entry.RequestHash == "" || (entry.EntryKind != runcontrol.LedgerEntryModel && entry.EntryKind != runcontrol.LedgerEntryCapability && entry.EntryKind != runcontrol.LedgerEntryLocalTransition) {
+	if entry.OperationKey == "" || entry.Operation == "" || entry.RequestHash == "" || (entry.EntryKind != runcontrol.LedgerEntryModel && entry.EntryKind != runcontrol.LedgerEntryCapability && entry.EntryKind != runcontrol.LedgerEntryLocalTransition && entry.EntryKind != runcontrol.LedgerEntryLocalDerivation) {
 		return runcontrol.ErrInvalidPayload
 	}
 	return nil

@@ -61,10 +61,51 @@ class RunExecutionLedger:
         self._budget = BudgetState(context.run_budget, BudgetVector.from_proto(context.consumed_budget), reserved)
 
     def execute_model(self, spec: LedgerCallSpec, invoke: Callable[[], Any], validate: Callable[[Any], T], *, consumption: Callable[[T], BudgetVector] | None = None) -> LedgerOutcome[T]:
-        return self._execute(spec, invoke, validate, "MODEL_VALIDATED_OUTPUT", consumption)
+        return self._execute(
+            spec,
+            invoke,
+            validate,
+            expected_kind="MODEL",
+            artifact_type="MODEL_VALIDATED_OUTPUT",
+            consumption_fn=consumption,
+        )
 
     def execute_capability(self, spec: LedgerCallSpec, invoke: Callable[[], Any], normalize: Callable[[Any], T], *, evidence: Callable[[T], tuple[proto.EvidenceItem, ...]] | None = None, consumption: Callable[[T], BudgetVector] | None = None) -> LedgerOutcome[T]:
-        return self._execute(spec, invoke, normalize, "CAPABILITY_VALIDATED_OUTPUT", consumption, evidence)
+        return self._execute(
+            spec,
+            invoke,
+            normalize,
+            expected_kind="CAPABILITY",
+            artifact_type="CAPABILITY_VALIDATED_OUTPUT",
+            consumption_fn=consumption,
+            evidence_fn=evidence,
+        )
+
+    def execute_derivation(
+        self,
+        spec: LedgerCallSpec,
+        derive: Callable[[], Any],
+        validate: Callable[[Any], T],
+        *,
+        artifact_type: str,
+        consumption: Callable[[T], BudgetVector] | None = None,
+    ) -> LedgerOutcome[T]:
+        """Persist and replay a deterministic, non-remote derived artifact.
+
+        Context Packs use this path so an artifact written ahead of the next
+        business checkpoint is still owned by the execution ledger.
+        """
+
+        if not artifact_type or len(artifact_type) > 80:
+            raise ValueError("derivation artifact_type must be bounded")
+        return self._execute(
+            spec,
+            derive,
+            validate,
+            expected_kind="LOCAL_DERIVATION",
+            artifact_type=artifact_type,
+            consumption_fn=consumption,
+        )
 
     def consume_transition(self, spec: LedgerCallSpec) -> None:
         self._validate_spec(spec, "LOCAL_TRANSITION")
@@ -85,8 +126,22 @@ class RunExecutionLedger:
     def entries(self) -> tuple[proto.RunLedgerEntry, ...]:
         return tuple(self._entries[key] for key in sorted(self._entries))
 
-    def _execute(self, spec: LedgerCallSpec, invoke: Callable[[], Any], validate: Callable[[Any], T], artifact_type: str, consumption_fn: Callable[[T], BudgetVector] | None, evidence_fn: Callable[[T], tuple[proto.EvidenceItem, ...]] | None = None) -> LedgerOutcome[T]:
-        self._validate_spec(spec, "MODEL" if artifact_type.startswith("MODEL") else "CAPABILITY")
+    @property
+    def context(self) -> RunContext:
+        return self._context
+
+    def _execute(
+        self,
+        spec: LedgerCallSpec,
+        invoke: Callable[[], Any],
+        validate: Callable[[Any], T],
+        *,
+        expected_kind: str,
+        artifact_type: str,
+        consumption_fn: Callable[[T], BudgetVector] | None,
+        evidence_fn: Callable[[T], tuple[proto.EvidenceItem, ...]] | None = None,
+    ) -> LedgerOutcome[T]:
+        self._validate_spec(spec, expected_kind)
         existing = self._entries.get(spec.operation_key)
         if existing is not None:
             self._assert_identity(existing, spec)

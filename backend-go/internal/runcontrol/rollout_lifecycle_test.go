@@ -66,7 +66,7 @@ func TestMemoryLifecycleCommandsAreDryRunApplyReplayAndHashBound(t *testing.T) {
 	readiness := ReadinessOperatorCommand{
 		CommandID: "readiness-command", ExpectedVersion: 2, ActorRef: "operator:test", Apply: true,
 		Input: ReadinessInput{
-			CommitHash: "sha256:commit", MigrationSetHash: "sha256:migrations", MigrationHead: "0021",
+			CommitHash: "sha256:commit", MigrationSetHash: "sha256:migrations", MigrationHead: "0023",
 			ContractReportHash: "sha256:contract", PostgresReportHash: "sha256:postgres",
 			EvalManifestHash: gateCommand.ManifestHash, ShadowPolicyHash: "sha256:shadow",
 			GateDecisionID: appliedGate.Record.DecisionID,

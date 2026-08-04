@@ -57,6 +57,28 @@ class FakeCapabilityStub:
             ]
         )
 
+    def SearchProjectMemory(self, request, timeout=None):
+        self.requests.append((request, timeout))
+        return capability.SearchProjectMemoryResponse(
+            space_id="space-1",
+            memory_watermark=4,
+            records=[
+                capability.ProjectMemoryItem(
+                    memory_id="memory-1",
+                    version=2,
+                    memory_type="PROJECT_DECISION",
+                    subject="runtime",
+                    predicate="control_plane",
+                    value_json='{"language":"go"}',
+                    statement="The control plane is implemented in Go.",
+                    authority_class="USER_CONFIRMED",
+                    committed_epoch=3,
+                    content_hash="sha256:memory",
+                )
+            ],
+            source_set_hash="sha256:source-set",
+        )
+
 
 class MetadataCapabilityStub(FakeCapabilityStub):
     def SearchRepository(self, request, timeout=None, metadata=None):
@@ -158,3 +180,28 @@ def test_capability_client_fetches_catalog_candidates_then_source_sections():
     assert hits[0].title == "历史 PRD"
     assert sections[0].source_revision == "revision-1"
     assert "Go Gateway" in sections[0].markdown
+
+
+def test_capability_client_normalizes_project_memory_without_receiving_scope_fields():
+    stub = FakeCapabilityStub()
+    client = CapabilityGatewayClient(
+        stub,
+        CapabilitySession(
+            lease=Lease("run-1", "lease-1", "worker-1", 1, "2030-01-01T00:00:00Z"),
+            request_id_prefix="dispatch-1",
+            correlation_id="run-1",
+        ),
+    )
+
+    result = client.search_project_memory(
+        query="control plane",
+        operation="plan_outline",
+        memory_types=("PROJECT_DECISION",),
+    )
+
+    request, _timeout = stub.requests[0]
+    assert result.memory_watermark == 4
+    assert result.records[0].value == {"language": "go"}
+    assert request.query == "control plane"
+    assert not hasattr(request, "space_id")
+    assert not hasattr(request, "watermark")

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from itertools import count
+import json
 
 import grpc
 
@@ -57,6 +58,52 @@ class PrdSection:
     source_revision: str
     title: str
     markdown: str
+
+
+@dataclass(frozen=True)
+class ProjectMemorySourceRef:
+    source_kind: str
+    binding_id: str
+    source_id: str
+    source_version: str
+    locator: str
+    content_hash: str
+    access_scope_hash: str
+
+
+@dataclass(frozen=True)
+class ProjectMemoryItem:
+    memory_id: str
+    version: int
+    memory_type: str
+    subject: str
+    predicate: str
+    value: object
+    statement: str
+    authority_class: str
+    tags: tuple[str, ...]
+    sensitivity: str
+    source_refs: tuple[ProjectMemorySourceRef, ...]
+    committed_epoch: int
+    content_hash: str
+
+
+@dataclass(frozen=True)
+class ProjectMemoryConflict:
+    conflict_id: str
+    subject: str
+    predicate: str
+    memory_ids: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class ProjectMemorySearchResult:
+    space_id: str
+    memory_watermark: int
+    records: tuple[ProjectMemoryItem, ...]
+    conflicts: tuple[ProjectMemoryConflict, ...]
+    excluded_count: int
+    source_set_hash: str
 
 
 class CapabilityGatewayClient:
@@ -225,6 +272,85 @@ class CapabilityGatewayClient:
                 retryable=False,
             )
         return sections
+
+    def search_project_memory(
+        self,
+        *,
+        query: str,
+        operation: str,
+        memory_types=(),
+        tags=(),
+        limit: int = 12,
+    ) -> ProjectMemorySearchResult:
+        if not query.strip() or not operation.strip():
+            raise ValueError("project memory query and operation are required")
+        if not 1 <= limit <= 50:
+            raise ValueError("project memory search limit must be between 1 and 50")
+        response = self._call(
+            self._stub.SearchProjectMemory,
+            capability.SearchProjectMemoryRequest(
+                capability=self._capability("search-project-memory"),
+                query=query,
+                operation=operation,
+                memory_types=tuple(memory_types),
+                tags=tuple(tags),
+                limit=limit,
+            ),
+        )
+        records = []
+        for item in response.records:
+            try:
+                value = json.loads(item.value_json)
+            except json.JSONDecodeError as error:
+                raise CapabilityError(
+                    "INVALID_MEMORY_PAYLOAD",
+                    "project memory value_json is invalid",
+                    retryable=False,
+                ) from error
+            records.append(
+                ProjectMemoryItem(
+                    memory_id=item.memory_id,
+                    version=item.version,
+                    memory_type=item.memory_type,
+                    subject=item.subject,
+                    predicate=item.predicate,
+                    value=value,
+                    statement=item.statement,
+                    authority_class=item.authority_class,
+                    tags=tuple(item.tags),
+                    sensitivity=item.sensitivity,
+                    source_refs=tuple(
+                        ProjectMemorySourceRef(
+                            source_kind=ref.source_kind,
+                            binding_id=ref.binding_id,
+                            source_id=ref.source_id,
+                            source_version=ref.source_version,
+                            locator=ref.locator,
+                            content_hash=ref.content_hash,
+                            access_scope_hash=ref.access_scope_hash,
+                        )
+                        for ref in item.source_refs
+                    ),
+                    committed_epoch=item.committed_epoch,
+                    content_hash=item.content_hash,
+                )
+            )
+        return ProjectMemorySearchResult(
+            space_id=response.space_id,
+            memory_watermark=response.memory_watermark,
+            records=tuple(records),
+            conflicts=tuple(
+                ProjectMemoryConflict(
+                    conflict_id=item.conflict_id,
+                    subject=item.subject,
+                    predicate=item.predicate,
+                    memory_ids=tuple(item.memory_ids),
+                )
+                for item in response.conflicts
+            ),
+            excluded_count=response.excluded_count,
+            source_set_hash=response.source_set_hash,
+        )
 
     def close(self) -> None:
         channel = getattr(self, "_channel", None)

@@ -1089,6 +1089,474 @@ func (x *CreateExportIntentResponse) GetReceipt() *ExportIntentReceipt {
 	return nil
 }
 
+type SearchProjectMemoryRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Capability    *CapabilityLease       `protobuf:"bytes,1,opt,name=capability,proto3" json:"capability,omitempty"`
+	Query         string                 `protobuf:"bytes,2,opt,name=query,proto3" json:"query,omitempty"`
+	Operation     string                 `protobuf:"bytes,3,opt,name=operation,proto3" json:"operation,omitempty"`
+	MemoryTypes   []string               `protobuf:"bytes,4,rep,name=memory_types,json=memoryTypes,proto3" json:"memory_types,omitempty"`
+	Tags          []string               `protobuf:"bytes,5,rep,name=tags,proto3" json:"tags,omitempty"`
+	Limit         int32                  `protobuf:"varint,6,opt,name=limit,proto3" json:"limit,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SearchProjectMemoryRequest) Reset() {
+	*x = SearchProjectMemoryRequest{}
+	mi := &file_agent_v1_capability_gateway_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SearchProjectMemoryRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SearchProjectMemoryRequest) ProtoMessage() {}
+
+func (x *SearchProjectMemoryRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_v1_capability_gateway_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SearchProjectMemoryRequest.ProtoReflect.Descriptor instead.
+func (*SearchProjectMemoryRequest) Descriptor() ([]byte, []int) {
+	return file_agent_v1_capability_gateway_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *SearchProjectMemoryRequest) GetCapability() *CapabilityLease {
+	if x != nil {
+		return x.Capability
+	}
+	return nil
+}
+
+func (x *SearchProjectMemoryRequest) GetQuery() string {
+	if x != nil {
+		return x.Query
+	}
+	return ""
+}
+
+func (x *SearchProjectMemoryRequest) GetOperation() string {
+	if x != nil {
+		return x.Operation
+	}
+	return ""
+}
+
+func (x *SearchProjectMemoryRequest) GetMemoryTypes() []string {
+	if x != nil {
+		return x.MemoryTypes
+	}
+	return nil
+}
+
+func (x *SearchProjectMemoryRequest) GetTags() []string {
+	if x != nil {
+		return x.Tags
+	}
+	return nil
+}
+
+func (x *SearchProjectMemoryRequest) GetLimit() int32 {
+	if x != nil {
+		return x.Limit
+	}
+	return 0
+}
+
+type ProjectMemorySourceRef struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	SourceKind      string                 `protobuf:"bytes,1,opt,name=source_kind,json=sourceKind,proto3" json:"source_kind,omitempty"`
+	BindingId       string                 `protobuf:"bytes,2,opt,name=binding_id,json=bindingId,proto3" json:"binding_id,omitempty"`
+	SourceId        string                 `protobuf:"bytes,3,opt,name=source_id,json=sourceId,proto3" json:"source_id,omitempty"`
+	SourceVersion   string                 `protobuf:"bytes,4,opt,name=source_version,json=sourceVersion,proto3" json:"source_version,omitempty"`
+	Locator         string                 `protobuf:"bytes,5,opt,name=locator,proto3" json:"locator,omitempty"`
+	ContentHash     string                 `protobuf:"bytes,6,opt,name=content_hash,json=contentHash,proto3" json:"content_hash,omitempty"`
+	AccessScopeHash string                 `protobuf:"bytes,7,opt,name=access_scope_hash,json=accessScopeHash,proto3" json:"access_scope_hash,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *ProjectMemorySourceRef) Reset() {
+	*x = ProjectMemorySourceRef{}
+	mi := &file_agent_v1_capability_gateway_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ProjectMemorySourceRef) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ProjectMemorySourceRef) ProtoMessage() {}
+
+func (x *ProjectMemorySourceRef) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_v1_capability_gateway_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ProjectMemorySourceRef.ProtoReflect.Descriptor instead.
+func (*ProjectMemorySourceRef) Descriptor() ([]byte, []int) {
+	return file_agent_v1_capability_gateway_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *ProjectMemorySourceRef) GetSourceKind() string {
+	if x != nil {
+		return x.SourceKind
+	}
+	return ""
+}
+
+func (x *ProjectMemorySourceRef) GetBindingId() string {
+	if x != nil {
+		return x.BindingId
+	}
+	return ""
+}
+
+func (x *ProjectMemorySourceRef) GetSourceId() string {
+	if x != nil {
+		return x.SourceId
+	}
+	return ""
+}
+
+func (x *ProjectMemorySourceRef) GetSourceVersion() string {
+	if x != nil {
+		return x.SourceVersion
+	}
+	return ""
+}
+
+func (x *ProjectMemorySourceRef) GetLocator() string {
+	if x != nil {
+		return x.Locator
+	}
+	return ""
+}
+
+func (x *ProjectMemorySourceRef) GetContentHash() string {
+	if x != nil {
+		return x.ContentHash
+	}
+	return ""
+}
+
+func (x *ProjectMemorySourceRef) GetAccessScopeHash() string {
+	if x != nil {
+		return x.AccessScopeHash
+	}
+	return ""
+}
+
+type ProjectMemoryItem struct {
+	state          protoimpl.MessageState    `protogen:"open.v1"`
+	MemoryId       string                    `protobuf:"bytes,1,opt,name=memory_id,json=memoryId,proto3" json:"memory_id,omitempty"`
+	Version        int64                     `protobuf:"varint,2,opt,name=version,proto3" json:"version,omitempty"`
+	MemoryType     string                    `protobuf:"bytes,3,opt,name=memory_type,json=memoryType,proto3" json:"memory_type,omitempty"`
+	Subject        string                    `protobuf:"bytes,4,opt,name=subject,proto3" json:"subject,omitempty"`
+	Predicate      string                    `protobuf:"bytes,5,opt,name=predicate,proto3" json:"predicate,omitempty"`
+	ValueJson      string                    `protobuf:"bytes,6,opt,name=value_json,json=valueJson,proto3" json:"value_json,omitempty"`
+	Statement      string                    `protobuf:"bytes,7,opt,name=statement,proto3" json:"statement,omitempty"`
+	AuthorityClass string                    `protobuf:"bytes,8,opt,name=authority_class,json=authorityClass,proto3" json:"authority_class,omitempty"`
+	Tags           []string                  `protobuf:"bytes,9,rep,name=tags,proto3" json:"tags,omitempty"`
+	Sensitivity    string                    `protobuf:"bytes,10,opt,name=sensitivity,proto3" json:"sensitivity,omitempty"`
+	SourceRefs     []*ProjectMemorySourceRef `protobuf:"bytes,11,rep,name=source_refs,json=sourceRefs,proto3" json:"source_refs,omitempty"`
+	CommittedEpoch int64                     `protobuf:"varint,12,opt,name=committed_epoch,json=committedEpoch,proto3" json:"committed_epoch,omitempty"`
+	ContentHash    string                    `protobuf:"bytes,13,opt,name=content_hash,json=contentHash,proto3" json:"content_hash,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *ProjectMemoryItem) Reset() {
+	*x = ProjectMemoryItem{}
+	mi := &file_agent_v1_capability_gateway_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ProjectMemoryItem) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ProjectMemoryItem) ProtoMessage() {}
+
+func (x *ProjectMemoryItem) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_v1_capability_gateway_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ProjectMemoryItem.ProtoReflect.Descriptor instead.
+func (*ProjectMemoryItem) Descriptor() ([]byte, []int) {
+	return file_agent_v1_capability_gateway_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *ProjectMemoryItem) GetMemoryId() string {
+	if x != nil {
+		return x.MemoryId
+	}
+	return ""
+}
+
+func (x *ProjectMemoryItem) GetVersion() int64 {
+	if x != nil {
+		return x.Version
+	}
+	return 0
+}
+
+func (x *ProjectMemoryItem) GetMemoryType() string {
+	if x != nil {
+		return x.MemoryType
+	}
+	return ""
+}
+
+func (x *ProjectMemoryItem) GetSubject() string {
+	if x != nil {
+		return x.Subject
+	}
+	return ""
+}
+
+func (x *ProjectMemoryItem) GetPredicate() string {
+	if x != nil {
+		return x.Predicate
+	}
+	return ""
+}
+
+func (x *ProjectMemoryItem) GetValueJson() string {
+	if x != nil {
+		return x.ValueJson
+	}
+	return ""
+}
+
+func (x *ProjectMemoryItem) GetStatement() string {
+	if x != nil {
+		return x.Statement
+	}
+	return ""
+}
+
+func (x *ProjectMemoryItem) GetAuthorityClass() string {
+	if x != nil {
+		return x.AuthorityClass
+	}
+	return ""
+}
+
+func (x *ProjectMemoryItem) GetTags() []string {
+	if x != nil {
+		return x.Tags
+	}
+	return nil
+}
+
+func (x *ProjectMemoryItem) GetSensitivity() string {
+	if x != nil {
+		return x.Sensitivity
+	}
+	return ""
+}
+
+func (x *ProjectMemoryItem) GetSourceRefs() []*ProjectMemorySourceRef {
+	if x != nil {
+		return x.SourceRefs
+	}
+	return nil
+}
+
+func (x *ProjectMemoryItem) GetCommittedEpoch() int64 {
+	if x != nil {
+		return x.CommittedEpoch
+	}
+	return 0
+}
+
+func (x *ProjectMemoryItem) GetContentHash() string {
+	if x != nil {
+		return x.ContentHash
+	}
+	return ""
+}
+
+type ProjectMemoryConflict struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ConflictId    string                 `protobuf:"bytes,1,opt,name=conflict_id,json=conflictId,proto3" json:"conflict_id,omitempty"`
+	Subject       string                 `protobuf:"bytes,2,opt,name=subject,proto3" json:"subject,omitempty"`
+	Predicate     string                 `protobuf:"bytes,3,opt,name=predicate,proto3" json:"predicate,omitempty"`
+	MemoryIds     []string               `protobuf:"bytes,4,rep,name=memory_ids,json=memoryIds,proto3" json:"memory_ids,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ProjectMemoryConflict) Reset() {
+	*x = ProjectMemoryConflict{}
+	mi := &file_agent_v1_capability_gateway_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ProjectMemoryConflict) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ProjectMemoryConflict) ProtoMessage() {}
+
+func (x *ProjectMemoryConflict) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_v1_capability_gateway_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ProjectMemoryConflict.ProtoReflect.Descriptor instead.
+func (*ProjectMemoryConflict) Descriptor() ([]byte, []int) {
+	return file_agent_v1_capability_gateway_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *ProjectMemoryConflict) GetConflictId() string {
+	if x != nil {
+		return x.ConflictId
+	}
+	return ""
+}
+
+func (x *ProjectMemoryConflict) GetSubject() string {
+	if x != nil {
+		return x.Subject
+	}
+	return ""
+}
+
+func (x *ProjectMemoryConflict) GetPredicate() string {
+	if x != nil {
+		return x.Predicate
+	}
+	return ""
+}
+
+func (x *ProjectMemoryConflict) GetMemoryIds() []string {
+	if x != nil {
+		return x.MemoryIds
+	}
+	return nil
+}
+
+type SearchProjectMemoryResponse struct {
+	state           protoimpl.MessageState   `protogen:"open.v1"`
+	SpaceId         string                   `protobuf:"bytes,1,opt,name=space_id,json=spaceId,proto3" json:"space_id,omitempty"`
+	MemoryWatermark int64                    `protobuf:"varint,2,opt,name=memory_watermark,json=memoryWatermark,proto3" json:"memory_watermark,omitempty"`
+	Records         []*ProjectMemoryItem     `protobuf:"bytes,3,rep,name=records,proto3" json:"records,omitempty"`
+	Conflicts       []*ProjectMemoryConflict `protobuf:"bytes,4,rep,name=conflicts,proto3" json:"conflicts,omitempty"`
+	ExcludedCount   int32                    `protobuf:"varint,5,opt,name=excluded_count,json=excludedCount,proto3" json:"excluded_count,omitempty"`
+	SourceSetHash   string                   `protobuf:"bytes,6,opt,name=source_set_hash,json=sourceSetHash,proto3" json:"source_set_hash,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *SearchProjectMemoryResponse) Reset() {
+	*x = SearchProjectMemoryResponse{}
+	mi := &file_agent_v1_capability_gateway_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SearchProjectMemoryResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SearchProjectMemoryResponse) ProtoMessage() {}
+
+func (x *SearchProjectMemoryResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_v1_capability_gateway_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SearchProjectMemoryResponse.ProtoReflect.Descriptor instead.
+func (*SearchProjectMemoryResponse) Descriptor() ([]byte, []int) {
+	return file_agent_v1_capability_gateway_proto_rawDescGZIP(), []int{23}
+}
+
+func (x *SearchProjectMemoryResponse) GetSpaceId() string {
+	if x != nil {
+		return x.SpaceId
+	}
+	return ""
+}
+
+func (x *SearchProjectMemoryResponse) GetMemoryWatermark() int64 {
+	if x != nil {
+		return x.MemoryWatermark
+	}
+	return 0
+}
+
+func (x *SearchProjectMemoryResponse) GetRecords() []*ProjectMemoryItem {
+	if x != nil {
+		return x.Records
+	}
+	return nil
+}
+
+func (x *SearchProjectMemoryResponse) GetConflicts() []*ProjectMemoryConflict {
+	if x != nil {
+		return x.Conflicts
+	}
+	return nil
+}
+
+func (x *SearchProjectMemoryResponse) GetExcludedCount() int32 {
+	if x != nil {
+		return x.ExcludedCount
+	}
+	return 0
+}
+
+func (x *SearchProjectMemoryResponse) GetSourceSetHash() string {
+	if x != nil {
+		return x.SourceSetHash
+	}
+	return ""
+}
+
 var File_agent_v1_capability_gateway_proto protoreflect.FileDescriptor
 
 const file_agent_v1_capability_gateway_proto_rawDesc = "" +
@@ -1179,14 +1647,66 @@ const file_agent_v1_capability_gateway_proto_rawDesc = "" +
 	"\x12confirmation_token\x18\x02 \x01(\tR\x11confirmationToken\x12\x16\n" +
 	"\x06status\x18\x03 \x01(\tR\x06status\"U\n" +
 	"\x1aCreateExportIntentResponse\x127\n" +
-	"\areceipt\x18\x01 \x01(\v2\x1d.agent.v1.ExportIntentReceiptR\areceipt2\xce\x04\n" +
+	"\areceipt\x18\x01 \x01(\v2\x1d.agent.v1.ExportIntentReceiptR\areceipt\"\xd8\x01\n" +
+	"\x1aSearchProjectMemoryRequest\x129\n" +
+	"\n" +
+	"capability\x18\x01 \x01(\v2\x19.agent.v1.CapabilityLeaseR\n" +
+	"capability\x12\x14\n" +
+	"\x05query\x18\x02 \x01(\tR\x05query\x12\x1c\n" +
+	"\toperation\x18\x03 \x01(\tR\toperation\x12!\n" +
+	"\fmemory_types\x18\x04 \x03(\tR\vmemoryTypes\x12\x12\n" +
+	"\x04tags\x18\x05 \x03(\tR\x04tags\x12\x14\n" +
+	"\x05limit\x18\x06 \x01(\x05R\x05limit\"\x85\x02\n" +
+	"\x16ProjectMemorySourceRef\x12\x1f\n" +
+	"\vsource_kind\x18\x01 \x01(\tR\n" +
+	"sourceKind\x12\x1d\n" +
+	"\n" +
+	"binding_id\x18\x02 \x01(\tR\tbindingId\x12\x1b\n" +
+	"\tsource_id\x18\x03 \x01(\tR\bsourceId\x12%\n" +
+	"\x0esource_version\x18\x04 \x01(\tR\rsourceVersion\x12\x18\n" +
+	"\alocator\x18\x05 \x01(\tR\alocator\x12!\n" +
+	"\fcontent_hash\x18\x06 \x01(\tR\vcontentHash\x12*\n" +
+	"\x11access_scope_hash\x18\a \x01(\tR\x0faccessScopeHash\"\xce\x03\n" +
+	"\x11ProjectMemoryItem\x12\x1b\n" +
+	"\tmemory_id\x18\x01 \x01(\tR\bmemoryId\x12\x18\n" +
+	"\aversion\x18\x02 \x01(\x03R\aversion\x12\x1f\n" +
+	"\vmemory_type\x18\x03 \x01(\tR\n" +
+	"memoryType\x12\x18\n" +
+	"\asubject\x18\x04 \x01(\tR\asubject\x12\x1c\n" +
+	"\tpredicate\x18\x05 \x01(\tR\tpredicate\x12\x1d\n" +
+	"\n" +
+	"value_json\x18\x06 \x01(\tR\tvalueJson\x12\x1c\n" +
+	"\tstatement\x18\a \x01(\tR\tstatement\x12'\n" +
+	"\x0fauthority_class\x18\b \x01(\tR\x0eauthorityClass\x12\x12\n" +
+	"\x04tags\x18\t \x03(\tR\x04tags\x12 \n" +
+	"\vsensitivity\x18\n" +
+	" \x01(\tR\vsensitivity\x12A\n" +
+	"\vsource_refs\x18\v \x03(\v2 .agent.v1.ProjectMemorySourceRefR\n" +
+	"sourceRefs\x12'\n" +
+	"\x0fcommitted_epoch\x18\f \x01(\x03R\x0ecommittedEpoch\x12!\n" +
+	"\fcontent_hash\x18\r \x01(\tR\vcontentHash\"\x8f\x01\n" +
+	"\x15ProjectMemoryConflict\x12\x1f\n" +
+	"\vconflict_id\x18\x01 \x01(\tR\n" +
+	"conflictId\x12\x18\n" +
+	"\asubject\x18\x02 \x01(\tR\asubject\x12\x1c\n" +
+	"\tpredicate\x18\x03 \x01(\tR\tpredicate\x12\x1d\n" +
+	"\n" +
+	"memory_ids\x18\x04 \x03(\tR\tmemoryIds\"\xa8\x02\n" +
+	"\x1bSearchProjectMemoryResponse\x12\x19\n" +
+	"\bspace_id\x18\x01 \x01(\tR\aspaceId\x12)\n" +
+	"\x10memory_watermark\x18\x02 \x01(\x03R\x0fmemoryWatermark\x125\n" +
+	"\arecords\x18\x03 \x03(\v2\x1b.agent.v1.ProjectMemoryItemR\arecords\x12=\n" +
+	"\tconflicts\x18\x04 \x03(\v2\x1f.agent.v1.ProjectMemoryConflictR\tconflicts\x12%\n" +
+	"\x0eexcluded_count\x18\x05 \x01(\x05R\rexcludedCount\x12&\n" +
+	"\x0fsource_set_hash\x18\x06 \x01(\tR\rsourceSetHash2\xb2\x05\n" +
 	"\x18CapabilityGatewayService\x12_\n" +
 	"\x12ReadRepositoryTree\x12#.agent.v1.ReadRepositoryTreeRequest\x1a$.agent.v1.ReadRepositoryTreeResponse\x12_\n" +
 	"\x12ReadRepositoryFile\x12#.agent.v1.ReadRepositoryFileRequest\x1a$.agent.v1.ReadRepositoryFileResponse\x12Y\n" +
 	"\x10SearchRepository\x12!.agent.v1.SearchRepositoryRequest\x1a\".agent.v1.SearchRepositoryResponse\x12Y\n" +
 	"\x10SearchPrdCatalog\x12!.agent.v1.SearchPrdCatalogRequest\x1a\".agent.v1.SearchPrdCatalogResponse\x12Y\n" +
 	"\x10FetchPrdSections\x12!.agent.v1.FetchPrdSectionsRequest\x1a\".agent.v1.FetchPrdSectionsResponse\x12_\n" +
-	"\x12CreateExportIntent\x12#.agent.v1.CreateExportIntentRequest\x1a$.agent.v1.CreateExportIntentResponseBIZGgithub.com/dante26979-droid/prd-agent/contracts/gen/go/agent/v1;agentv1b\x06proto3"
+	"\x12CreateExportIntent\x12#.agent.v1.CreateExportIntentRequest\x1a$.agent.v1.CreateExportIntentResponse\x12b\n" +
+	"\x13SearchProjectMemory\x12$.agent.v1.SearchProjectMemoryRequest\x1a%.agent.v1.SearchProjectMemoryResponseBIZGgithub.com/dante26979-droid/prd-agent/contracts/gen/go/agent/v1;agentv1b\x06proto3"
 
 var (
 	file_agent_v1_capability_gateway_proto_rawDescOnce sync.Once
@@ -1200,33 +1720,38 @@ func file_agent_v1_capability_gateway_proto_rawDescGZIP() []byte {
 	return file_agent_v1_capability_gateway_proto_rawDescData
 }
 
-var file_agent_v1_capability_gateway_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
+var file_agent_v1_capability_gateway_proto_msgTypes = make([]protoimpl.MessageInfo, 24)
 var file_agent_v1_capability_gateway_proto_goTypes = []any{
-	(*CapabilityLease)(nil),            // 0: agent.v1.CapabilityLease
-	(*ReadRepositoryTreeRequest)(nil),  // 1: agent.v1.ReadRepositoryTreeRequest
-	(*RepositoryTree)(nil),             // 2: agent.v1.RepositoryTree
-	(*ReadRepositoryTreeResponse)(nil), // 3: agent.v1.ReadRepositoryTreeResponse
-	(*ReadRepositoryFileRequest)(nil),  // 4: agent.v1.ReadRepositoryFileRequest
-	(*RepositoryFile)(nil),             // 5: agent.v1.RepositoryFile
-	(*ReadRepositoryFileResponse)(nil), // 6: agent.v1.ReadRepositoryFileResponse
-	(*SearchRepositoryRequest)(nil),    // 7: agent.v1.SearchRepositoryRequest
-	(*RepositorySearchHit)(nil),        // 8: agent.v1.RepositorySearchHit
-	(*SearchRepositoryResponse)(nil),   // 9: agent.v1.SearchRepositoryResponse
-	(*SearchPrdCatalogRequest)(nil),    // 10: agent.v1.SearchPrdCatalogRequest
-	(*PrdCatalogHit)(nil),              // 11: agent.v1.PrdCatalogHit
-	(*SearchPrdCatalogResponse)(nil),   // 12: agent.v1.SearchPrdCatalogResponse
-	(*FetchPrdSectionsRequest)(nil),    // 13: agent.v1.FetchPrdSectionsRequest
-	(*PrdSection)(nil),                 // 14: agent.v1.PrdSection
-	(*FetchPrdSectionsResponse)(nil),   // 15: agent.v1.FetchPrdSectionsResponse
-	(*CreateExportIntentRequest)(nil),  // 16: agent.v1.CreateExportIntentRequest
-	(*ExportIntentReceipt)(nil),        // 17: agent.v1.ExportIntentReceipt
-	(*CreateExportIntentResponse)(nil), // 18: agent.v1.CreateExportIntentResponse
-	(*LeaseContext)(nil),               // 19: agent.v1.LeaseContext
-	(*RequestMeta)(nil),                // 20: agent.v1.RequestMeta
+	(*CapabilityLease)(nil),             // 0: agent.v1.CapabilityLease
+	(*ReadRepositoryTreeRequest)(nil),   // 1: agent.v1.ReadRepositoryTreeRequest
+	(*RepositoryTree)(nil),              // 2: agent.v1.RepositoryTree
+	(*ReadRepositoryTreeResponse)(nil),  // 3: agent.v1.ReadRepositoryTreeResponse
+	(*ReadRepositoryFileRequest)(nil),   // 4: agent.v1.ReadRepositoryFileRequest
+	(*RepositoryFile)(nil),              // 5: agent.v1.RepositoryFile
+	(*ReadRepositoryFileResponse)(nil),  // 6: agent.v1.ReadRepositoryFileResponse
+	(*SearchRepositoryRequest)(nil),     // 7: agent.v1.SearchRepositoryRequest
+	(*RepositorySearchHit)(nil),         // 8: agent.v1.RepositorySearchHit
+	(*SearchRepositoryResponse)(nil),    // 9: agent.v1.SearchRepositoryResponse
+	(*SearchPrdCatalogRequest)(nil),     // 10: agent.v1.SearchPrdCatalogRequest
+	(*PrdCatalogHit)(nil),               // 11: agent.v1.PrdCatalogHit
+	(*SearchPrdCatalogResponse)(nil),    // 12: agent.v1.SearchPrdCatalogResponse
+	(*FetchPrdSectionsRequest)(nil),     // 13: agent.v1.FetchPrdSectionsRequest
+	(*PrdSection)(nil),                  // 14: agent.v1.PrdSection
+	(*FetchPrdSectionsResponse)(nil),    // 15: agent.v1.FetchPrdSectionsResponse
+	(*CreateExportIntentRequest)(nil),   // 16: agent.v1.CreateExportIntentRequest
+	(*ExportIntentReceipt)(nil),         // 17: agent.v1.ExportIntentReceipt
+	(*CreateExportIntentResponse)(nil),  // 18: agent.v1.CreateExportIntentResponse
+	(*SearchProjectMemoryRequest)(nil),  // 19: agent.v1.SearchProjectMemoryRequest
+	(*ProjectMemorySourceRef)(nil),      // 20: agent.v1.ProjectMemorySourceRef
+	(*ProjectMemoryItem)(nil),           // 21: agent.v1.ProjectMemoryItem
+	(*ProjectMemoryConflict)(nil),       // 22: agent.v1.ProjectMemoryConflict
+	(*SearchProjectMemoryResponse)(nil), // 23: agent.v1.SearchProjectMemoryResponse
+	(*LeaseContext)(nil),                // 24: agent.v1.LeaseContext
+	(*RequestMeta)(nil),                 // 25: agent.v1.RequestMeta
 }
 var file_agent_v1_capability_gateway_proto_depIdxs = []int32{
-	19, // 0: agent.v1.CapabilityLease.lease:type_name -> agent.v1.LeaseContext
-	20, // 1: agent.v1.CapabilityLease.meta:type_name -> agent.v1.RequestMeta
+	24, // 0: agent.v1.CapabilityLease.lease:type_name -> agent.v1.LeaseContext
+	25, // 1: agent.v1.CapabilityLease.meta:type_name -> agent.v1.RequestMeta
 	0,  // 2: agent.v1.ReadRepositoryTreeRequest.capability:type_name -> agent.v1.CapabilityLease
 	2,  // 3: agent.v1.ReadRepositoryTreeResponse.tree:type_name -> agent.v1.RepositoryTree
 	0,  // 4: agent.v1.ReadRepositoryFileRequest.capability:type_name -> agent.v1.CapabilityLease
@@ -1239,23 +1764,29 @@ var file_agent_v1_capability_gateway_proto_depIdxs = []int32{
 	14, // 11: agent.v1.FetchPrdSectionsResponse.sections:type_name -> agent.v1.PrdSection
 	0,  // 12: agent.v1.CreateExportIntentRequest.capability:type_name -> agent.v1.CapabilityLease
 	17, // 13: agent.v1.CreateExportIntentResponse.receipt:type_name -> agent.v1.ExportIntentReceipt
-	1,  // 14: agent.v1.CapabilityGatewayService.ReadRepositoryTree:input_type -> agent.v1.ReadRepositoryTreeRequest
-	4,  // 15: agent.v1.CapabilityGatewayService.ReadRepositoryFile:input_type -> agent.v1.ReadRepositoryFileRequest
-	7,  // 16: agent.v1.CapabilityGatewayService.SearchRepository:input_type -> agent.v1.SearchRepositoryRequest
-	10, // 17: agent.v1.CapabilityGatewayService.SearchPrdCatalog:input_type -> agent.v1.SearchPrdCatalogRequest
-	13, // 18: agent.v1.CapabilityGatewayService.FetchPrdSections:input_type -> agent.v1.FetchPrdSectionsRequest
-	16, // 19: agent.v1.CapabilityGatewayService.CreateExportIntent:input_type -> agent.v1.CreateExportIntentRequest
-	3,  // 20: agent.v1.CapabilityGatewayService.ReadRepositoryTree:output_type -> agent.v1.ReadRepositoryTreeResponse
-	6,  // 21: agent.v1.CapabilityGatewayService.ReadRepositoryFile:output_type -> agent.v1.ReadRepositoryFileResponse
-	9,  // 22: agent.v1.CapabilityGatewayService.SearchRepository:output_type -> agent.v1.SearchRepositoryResponse
-	12, // 23: agent.v1.CapabilityGatewayService.SearchPrdCatalog:output_type -> agent.v1.SearchPrdCatalogResponse
-	15, // 24: agent.v1.CapabilityGatewayService.FetchPrdSections:output_type -> agent.v1.FetchPrdSectionsResponse
-	18, // 25: agent.v1.CapabilityGatewayService.CreateExportIntent:output_type -> agent.v1.CreateExportIntentResponse
-	20, // [20:26] is the sub-list for method output_type
-	14, // [14:20] is the sub-list for method input_type
-	14, // [14:14] is the sub-list for extension type_name
-	14, // [14:14] is the sub-list for extension extendee
-	0,  // [0:14] is the sub-list for field type_name
+	0,  // 14: agent.v1.SearchProjectMemoryRequest.capability:type_name -> agent.v1.CapabilityLease
+	20, // 15: agent.v1.ProjectMemoryItem.source_refs:type_name -> agent.v1.ProjectMemorySourceRef
+	21, // 16: agent.v1.SearchProjectMemoryResponse.records:type_name -> agent.v1.ProjectMemoryItem
+	22, // 17: agent.v1.SearchProjectMemoryResponse.conflicts:type_name -> agent.v1.ProjectMemoryConflict
+	1,  // 18: agent.v1.CapabilityGatewayService.ReadRepositoryTree:input_type -> agent.v1.ReadRepositoryTreeRequest
+	4,  // 19: agent.v1.CapabilityGatewayService.ReadRepositoryFile:input_type -> agent.v1.ReadRepositoryFileRequest
+	7,  // 20: agent.v1.CapabilityGatewayService.SearchRepository:input_type -> agent.v1.SearchRepositoryRequest
+	10, // 21: agent.v1.CapabilityGatewayService.SearchPrdCatalog:input_type -> agent.v1.SearchPrdCatalogRequest
+	13, // 22: agent.v1.CapabilityGatewayService.FetchPrdSections:input_type -> agent.v1.FetchPrdSectionsRequest
+	16, // 23: agent.v1.CapabilityGatewayService.CreateExportIntent:input_type -> agent.v1.CreateExportIntentRequest
+	19, // 24: agent.v1.CapabilityGatewayService.SearchProjectMemory:input_type -> agent.v1.SearchProjectMemoryRequest
+	3,  // 25: agent.v1.CapabilityGatewayService.ReadRepositoryTree:output_type -> agent.v1.ReadRepositoryTreeResponse
+	6,  // 26: agent.v1.CapabilityGatewayService.ReadRepositoryFile:output_type -> agent.v1.ReadRepositoryFileResponse
+	9,  // 27: agent.v1.CapabilityGatewayService.SearchRepository:output_type -> agent.v1.SearchRepositoryResponse
+	12, // 28: agent.v1.CapabilityGatewayService.SearchPrdCatalog:output_type -> agent.v1.SearchPrdCatalogResponse
+	15, // 29: agent.v1.CapabilityGatewayService.FetchPrdSections:output_type -> agent.v1.FetchPrdSectionsResponse
+	18, // 30: agent.v1.CapabilityGatewayService.CreateExportIntent:output_type -> agent.v1.CreateExportIntentResponse
+	23, // 31: agent.v1.CapabilityGatewayService.SearchProjectMemory:output_type -> agent.v1.SearchProjectMemoryResponse
+	25, // [25:32] is the sub-list for method output_type
+	18, // [18:25] is the sub-list for method input_type
+	18, // [18:18] is the sub-list for extension type_name
+	18, // [18:18] is the sub-list for extension extendee
+	0,  // [0:18] is the sub-list for field type_name
 }
 
 func init() { file_agent_v1_capability_gateway_proto_init() }
@@ -1270,7 +1801,7 @@ func file_agent_v1_capability_gateway_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agent_v1_capability_gateway_proto_rawDesc), len(file_agent_v1_capability_gateway_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   19,
+			NumMessages:   24,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

@@ -49,8 +49,11 @@ class ReviewableUnitRuntime:
         execution_request = self._execution_request(context, scope, base_candidate)
         if execution_request is not None:
             return ReviewableUnitExecutionModule(
-                outline_generator=lambda item: generate(
-                    "plan_outline", self._payload(item, "outline-candidate.v1")
+                outline_generator=lambda item: self._outline_candidate(
+                    item,
+                    generate(
+                        "plan_outline", self._payload(item, "outline-candidate.v1")
+                    ),
                 ),
                 unit_generator=lambda item: self._unit_candidate(
                     item,
@@ -63,8 +66,11 @@ class ReviewableUnitRuntime:
                 grounding_evaluator=grounding_evaluator,
             ).run(execution_request)
         module = ReviewableUnitModule(
-            outline_generator=lambda item: generate(
-                "plan_outline", self._payload(item, "outline-candidate.v1")
+            outline_generator=lambda item: self._outline_candidate(
+                item,
+                generate(
+                    "plan_outline", self._payload(item, "outline-candidate.v1")
+                ),
             ),
             unit_generator=lambda item: self._unit_candidate(
                 item,
@@ -134,15 +140,161 @@ class ReviewableUnitRuntime:
             "base_candidate": (
                 request.base_candidate.as_dict() if request.base_candidate is not None else None
             ),
+            "output_contract": ReviewableUnitRuntime._output_contract(expected_schema),
             "instruction": "Return only the requested schema and do not write outside current_unit_key.",
+        }
+
+    @staticmethod
+    def _output_contract(expected_schema: str) -> Mapping[str, object]:
+        if expected_schema == "outline-candidate.v1":
+            return {
+                "schema_version": "outline-candidate.v1",
+                "title": "non-empty string",
+                "requirement_size": "SMALL | MEDIUM | LARGE",
+                "nodes": [
+                    {
+                        "node_key": "unique non-empty string",
+                        "parent_key": "empty string or another node_key",
+                        "ordinal": "non-negative integer",
+                        "title": "non-empty string",
+                        "questions": ["string"],
+                        "required_content": ["string"],
+                        "unit_key": "one of units[].unit_key",
+                    }
+                ],
+                "units": [
+                    {
+                        "unit_key": "unique non-empty string",
+                        "title": "non-empty string",
+                        "ordinal": "non-negative integer",
+                        "node_keys": ["assigned node_key"],
+                        "depends_on": ["another unit_key"],
+                    }
+                ],
+            }
+        if expected_schema == "unit-candidate.v1":
+            return {
+                "schema_version": "unit-candidate.v1",
+                "unit_key": "exact unit_scope.current_unit_key",
+                "title": "exact unit_scope.current_unit_title",
+                "ordinal": "exact unit_scope.current_unit_ordinal",
+                "node_keys": ["exact unit_scope.section_node_keys values"],
+                "markdown": "non-empty markdown string",
+                "claims": [],
+                "claim_ids": [],
+                "unknown_ids": [],
+                "used_fact_ids": [],
+            }
+        if expected_schema == "unit-patch.v1":
+            return {
+                "schema_version": "unit-patch.v1",
+                "unit_key": "exact unit_scope.current_unit_key",
+                "base_content_hash": "exact unit_scope.base_unit_hash",
+                "replacement_markdown": "non-empty markdown string",
+                "claims": [],
+                "resolved_issue_ids": [],
+                "preserved_unknown_ids": [],
+                "used_fact_ids": [],
+            }
+        return {"schema_version": expected_schema}
+
+    @staticmethod
+    def _outline_candidate(
+        request: UnitRunRequest, value: Mapping[str, object]
+    ) -> Mapping[str, object]:
+        if value.get("schema_version") == "outline-candidate.v1" and all(
+            key in value for key in ("title", "requirement_size", "nodes", "units")
+        ):
+            return value
+        nested = value.get("outline")
+        if not isinstance(nested, Mapping):
+            return value
+        raw_units = nested.get("units")
+        if not isinstance(raw_units, list) or not raw_units:
+            return value
+
+        normalized_units: list[dict[str, object]] = []
+        normalized_nodes: list[dict[str, object]] = []
+        used_keys: set[str] = set()
+        for index, raw_unit in enumerate(raw_units, start=1):
+            if not isinstance(raw_unit, Mapping):
+                return value
+            base_key = str(
+                raw_unit.get("unit_key") or raw_unit.get("key") or f"unit-{index}"
+            ).strip()
+            unit_key = base_key or f"unit-{index}"
+            if unit_key in used_keys:
+                unit_key = f"{unit_key}-{index}"
+            used_keys.add(unit_key)
+            title = str(raw_unit.get("title") or unit_key).strip() or unit_key
+            try:
+                ordinal = max(int(raw_unit.get("ordinal", index)), 0)
+            except (TypeError, ValueError):
+                ordinal = index
+            raw_dependencies = raw_unit.get(
+                "depends_on", raw_unit.get("dependencies", [])
+            )
+            dependencies = (
+                [str(item).strip() for item in raw_dependencies if str(item).strip()]
+                if isinstance(raw_dependencies, list)
+                else []
+            )
+            content = raw_unit.get("content")
+            required_content = (
+                [str(key) for key in content]
+                if isinstance(content, Mapping) and content
+                else [title]
+            )
+            normalized_nodes.append(
+                {
+                    "node_key": unit_key,
+                    "parent_key": "",
+                    "ordinal": ordinal,
+                    "title": title,
+                    "questions": [f"{title}需要明确哪些内容？"],
+                    "required_content": required_content,
+                    "unit_key": unit_key,
+                }
+            )
+            normalized_units.append(
+                {
+                    "unit_key": unit_key,
+                    "title": title,
+                    "ordinal": ordinal,
+                    "node_keys": [unit_key],
+                    "depends_on": dependencies,
+                }
+            )
+
+        for unit in normalized_units:
+            unit_key = str(unit["unit_key"])
+            unit["depends_on"] = [
+                item
+                for item in unit["depends_on"]
+                if item in used_keys and item != unit_key
+            ]
+
+        unit_count = len(normalized_units)
+        requirement_size = str(nested.get("requirement_size", "")).strip().upper()
+        if requirement_size not in {"SMALL", "MEDIUM", "LARGE"}:
+            requirement_size = (
+                "SMALL" if unit_count <= 3 else "MEDIUM" if unit_count <= 8 else "LARGE"
+            )
+        title = str(
+            nested.get("title") or value.get("title") or request.task_message or "PRD"
+        ).strip() or "PRD"
+        return {
+            "schema_version": "outline-candidate.v1",
+            "title": title,
+            "requirement_size": requirement_size,
+            "nodes": normalized_nodes,
+            "units": normalized_units,
         }
 
     @staticmethod
     def _unit_candidate(
         request: UnitRunRequest, value: Mapping[str, object]
     ) -> Mapping[str, object]:
-        if value.get("schema_version") == "unit-candidate.v1":
-            return value
         return {
             "schema_version": "unit-candidate.v1",
             "unit_key": request.scope.current_unit_key,
@@ -160,13 +312,13 @@ class ReviewableUnitRuntime:
     def _unit_patch(
         request: UnitRunRequest, value: Mapping[str, object]
     ) -> Mapping[str, object]:
-        if value.get("schema_version") == "unit-patch.v1":
-            return value
         return {
             "schema_version": "unit-patch.v1",
             "unit_key": request.scope.current_unit_key,
             "base_content_hash": request.scope.base_unit_hash,
-            "replacement_markdown": value.get("markdown", ""),
+            "replacement_markdown": value.get(
+                "replacement_markdown", value.get("markdown", "")
+            ),
             "claims": value.get("claims", []),
             "resolved_issue_ids": value.get("resolved_issue_ids", []),
             "preserved_unknown_ids": value.get("preserved_unknown_ids", []),

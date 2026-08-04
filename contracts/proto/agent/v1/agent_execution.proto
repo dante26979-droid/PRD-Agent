@@ -78,6 +78,11 @@ message AgentRunInput {
 	string shadow_workflow_version = 28;
 	string candidate_policy_version = 29;
 	string assignment_hash = 30;
+	string memory_space_id = 31;
+	int64 memory_watermark = 32;
+	string memory_policy_version = 33;
+	string memory_access_scope_hash = 34;
+	string memory_assignment_hash = 35;
 }
 
 enum RunPurpose {

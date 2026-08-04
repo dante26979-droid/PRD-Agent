@@ -185,8 +185,8 @@ func BuildReadinessRecord(input ReadinessInput, state RolloutStageState, activeP
 			blockers = append(blockers, item.code)
 		}
 	}
-	if input.MigrationHead != "0021" {
-		blockers = append(blockers, "MIGRATION_HEAD_NOT_0021")
+	if input.MigrationHead != "0023" {
+		blockers = append(blockers, "MIGRATION_HEAD_NOT_0023")
 	}
 	if state.Paused {
 		blockers = append(blockers, "ROLLOUT_PAUSED")

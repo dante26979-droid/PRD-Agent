@@ -64,6 +64,11 @@ class CapabilityGatewayServiceStub:
                 request_serializer=agent_dot_v1_dot_capability__gateway__pb2.CreateExportIntentRequest.SerializeToString,
                 response_deserializer=agent_dot_v1_dot_capability__gateway__pb2.CreateExportIntentResponse.FromString,
                 _registered_method=True)
+        self.SearchProjectMemory = channel.unary_unary(
+                '/agent.v1.CapabilityGatewayService/SearchProjectMemory',
+                request_serializer=agent_dot_v1_dot_capability__gateway__pb2.SearchProjectMemoryRequest.SerializeToString,
+                response_deserializer=agent_dot_v1_dot_capability__gateway__pb2.SearchProjectMemoryResponse.FromString,
+                _registered_method=True)
 
 
 class CapabilityGatewayServiceServicer:
@@ -105,6 +110,12 @@ class CapabilityGatewayServiceServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def SearchProjectMemory(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_CapabilityGatewayServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -137,6 +148,11 @@ def add_CapabilityGatewayServiceServicer_to_server(servicer, server):
                     servicer.CreateExportIntent,
                     request_deserializer=agent_dot_v1_dot_capability__gateway__pb2.CreateExportIntentRequest.FromString,
                     response_serializer=agent_dot_v1_dot_capability__gateway__pb2.CreateExportIntentResponse.SerializeToString,
+            ),
+            'SearchProjectMemory': grpc.unary_unary_rpc_method_handler(
+                    servicer.SearchProjectMemory,
+                    request_deserializer=agent_dot_v1_dot_capability__gateway__pb2.SearchProjectMemoryRequest.FromString,
+                    response_serializer=agent_dot_v1_dot_capability__gateway__pb2.SearchProjectMemoryResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -301,6 +317,33 @@ class CapabilityGatewayService:
             '/agent.v1.CapabilityGatewayService/CreateExportIntent',
             agent_dot_v1_dot_capability__gateway__pb2.CreateExportIntentRequest.SerializeToString,
             agent_dot_v1_dot_capability__gateway__pb2.CreateExportIntentResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def SearchProjectMemory(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/agent.v1.CapabilityGatewayService/SearchProjectMemory',
+            agent_dot_v1_dot_capability__gateway__pb2.SearchProjectMemoryRequest.SerializeToString,
+            agent_dot_v1_dot_capability__gateway__pb2.SearchProjectMemoryResponse.FromString,
             options,
             channel_credentials,
             insecure,

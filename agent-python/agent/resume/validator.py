@@ -299,7 +299,7 @@ class ResumeValidator:
     def _ledger_artifact_keys(context: RunContext) -> set[str]:
         keys: set[str] = set()
         for entry in context.ledger_entries:
-            if entry.entry_kind not in {"MODEL", "CAPABILITY"}:
+            if entry.entry_kind not in {"MODEL", "CAPABILITY", "LOCAL_DERIVATION"}:
                 continue
             if entry.output_artifact_key:
                 keys.add(entry.output_artifact_key)
