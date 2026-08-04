@@ -2,7 +2,9 @@ package capability
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -23,6 +25,7 @@ type LeaseStore interface {
 type Server struct {
 	agentv1.UnimplementedCapabilityGatewayServiceServer
 	store      LeaseStore
+	memory     runcontrol.ProjectMemoryStore
 	repository *RepositoryManager
 	bindingID  string
 	token      string
@@ -38,12 +41,140 @@ func NewServer(store LeaseStore, repository *RepositoryManager, bindingID, token
 	if len(strings.TrimSpace(token)) < 32 {
 		return nil, fmt.Errorf("capability service token must contain at least 32 characters")
 	}
+	memory, _ := store.(runcontrol.ProjectMemoryStore)
 	return &Server{
 		store:      store,
+		memory:     memory,
 		repository: repository,
 		bindingID:  strings.TrimSpace(bindingID),
 		token:      strings.TrimSpace(token),
 	}, nil
+}
+
+func (s *Server) SearchProjectMemory(ctx context.Context, request *agentv1.SearchProjectMemoryRequest) (*agentv1.SearchProjectMemoryResponse, error) {
+	if request == nil || strings.TrimSpace(request.GetQuery()) == "" || strings.TrimSpace(request.GetOperation()) == "" {
+		return nil, status.Error(codes.InvalidArgument, "memory query and operation are required")
+	}
+	if request.GetLimit() < 0 || request.GetLimit() > int32(runcontrol.MaxMemorySearchLimit) {
+		return nil, status.Error(codes.InvalidArgument, "memory search limit is invalid")
+	}
+	input, err := s.authorizeRun(ctx, request.GetCapability())
+	if err != nil {
+		return nil, err
+	}
+	if s.memory == nil {
+		return nil, status.Error(codes.Unavailable, "project memory store is unavailable")
+	}
+	if input.MemorySpaceID == "" || input.MemoryAssignmentHash == "" || input.MemoryPolicyVersion == "" || input.MemoryAccessScopeHash == "" || input.MemoryWatermark < 0 {
+		return nil, status.Error(codes.FailedPrecondition, "Agent Run has no memory assignment")
+	}
+	types := make([]runcontrol.ProjectMemoryType, 0, len(request.GetMemoryTypes()))
+	for _, value := range request.GetMemoryTypes() {
+		item := runcontrol.ProjectMemoryType(value)
+		if !item.Valid() {
+			return nil, status.Error(codes.InvalidArgument, "unknown project memory type")
+		}
+		types = append(types, item)
+	}
+	result, err := s.memory.SearchProjectMemory(ctx, runcontrol.ProjectMemorySearchRequest{
+		TenantID: input.Run.TenantID, OwnerID: input.Run.OwnerID,
+		SpaceID: input.MemorySpaceID, Watermark: input.MemoryWatermark,
+		AccessScopeHash: input.MemoryAccessScopeHash, Query: request.GetQuery(),
+		Operation: request.GetOperation(), MemoryTypes: types, Tags: request.GetTags(), Limit: int(request.GetLimit()),
+	})
+	if err != nil {
+		if errors.Is(err, runcontrol.ErrInvalidPayload) {
+			return nil, status.Error(codes.InvalidArgument, err.Error())
+		}
+		if errors.Is(err, runcontrol.ErrNotFound) {
+			return nil, status.Error(codes.PermissionDenied, "project memory space is not available to this run")
+		}
+		return nil, status.Error(codes.Internal, "search project memory")
+	}
+	response := &agentv1.SearchProjectMemoryResponse{SpaceId: result.SpaceID, MemoryWatermark: result.MemoryWatermark, ExcludedCount: int32(result.ExcludedCount)}
+	recordsByID := make(map[string]*agentv1.ProjectMemoryItem, len(result.Records))
+	recordOrder := make([]string, 0, len(result.Records))
+	for _, item := range result.Records {
+		if !s.revalidateProjectMemory(ctx, input, item) {
+			response.ExcludedCount++
+			continue
+		}
+		valueJSON, _ := json.Marshal(item.Value)
+		record := &agentv1.ProjectMemoryItem{MemoryId: item.MemoryID, Version: item.Version, MemoryType: string(item.MemoryType), Subject: item.Subject, Predicate: item.Predicate, ValueJson: string(valueJSON), Statement: item.Statement, AuthorityClass: string(item.AuthorityClass), Tags: append([]string(nil), item.Tags...), Sensitivity: item.Sensitivity, CommittedEpoch: item.CommittedEpoch, ContentHash: item.ContentHash}
+		for _, ref := range item.SourceRefs {
+			record.SourceRefs = append(record.SourceRefs, &agentv1.ProjectMemorySourceRef{SourceKind: ref.SourceKind, BindingId: ref.BindingID, SourceId: ref.SourceID, SourceVersion: ref.SourceVersion, Locator: ref.Locator, ContentHash: ref.ContentHash, AccessScopeHash: ref.AccessScopeHash})
+		}
+		recordsByID[item.MemoryID] = record
+		recordOrder = append(recordOrder, item.MemoryID)
+	}
+	for _, item := range result.Conflicts {
+		present := 0
+		for _, memoryID := range item.MemoryIDs {
+			if recordsByID[memoryID] != nil {
+				present++
+			}
+		}
+		if present == 0 {
+			continue
+		}
+		if present != len(item.MemoryIDs) {
+			// A conflict is an atomic recall group. If ranking, access checks, or
+			// source revalidation removed one side, remove every side.
+			for _, memoryID := range item.MemoryIDs {
+				if recordsByID[memoryID] != nil {
+					delete(recordsByID, memoryID)
+					response.ExcludedCount++
+				}
+			}
+			continue
+		}
+		response.Conflicts = append(response.Conflicts, &agentv1.ProjectMemoryConflict{ConflictId: item.ConflictID, Subject: item.Subject, Predicate: item.Predicate, MemoryIds: append([]string(nil), item.MemoryIDs...)})
+	}
+	identities := make([]string, 0, len(recordsByID))
+	for _, memoryID := range recordOrder {
+		record := recordsByID[memoryID]
+		if record == nil {
+			continue
+		}
+		response.Records = append(response.Records, record)
+		identities = append(identities, fmt.Sprintf("%s@%d:%s", record.MemoryId, record.Version, record.ContentHash))
+	}
+	digest := sha256.Sum256([]byte(strings.Join(identities, "\x00")))
+	response.SourceSetHash = fmt.Sprintf("sha256:%x", digest[:])
+	return response, nil
+}
+
+func (s *Server) revalidateProjectMemory(ctx context.Context, input runcontrol.AgentRunInput, item runcontrol.ProjectMemoryVersion) bool {
+	if item.AuthorityClass != runcontrol.MemorySourceVerified {
+		return true
+	}
+	if len(item.SourceRefs) == 0 {
+		return false
+	}
+	for _, ref := range item.SourceRefs {
+		if ref.AccessScopeHash != "" && ref.AccessScopeHash != input.MemoryAccessScopeHash {
+			return false
+		}
+		switch strings.ToUpper(strings.TrimSpace(ref.SourceKind)) {
+		case "GITHUB", "GITHUB_REPOSITORY", "REPOSITORY_FILE":
+			if ref.BindingID != s.bindingID || ref.SourceVersion != input.RepositoryRevision || ref.SourceVersion == "" {
+				return false
+			}
+			path := strings.TrimSpace(ref.SourceID)
+			if path == "" {
+				path = strings.SplitN(strings.TrimSpace(ref.Locator), "#", 2)[0]
+			}
+			file, err := s.repository.Read(ctx, ref.SourceVersion, path)
+			if err != nil || strings.TrimPrefix(file.ContentHash, "sha256:") != strings.TrimPrefix(ref.ContentHash, "sha256:") {
+				return false
+			}
+		default:
+			// This Gateway can only revalidate repository-backed sources. Other
+			// source kinds fail closed until their authoritative adapter exists.
+			return false
+		}
+	}
+	return true
 }
 
 func (s *Server) ReadRepositoryTree(ctx context.Context, request *agentv1.ReadRepositoryTreeRequest) (*agentv1.ReadRepositoryTreeResponse, error) {
@@ -112,34 +243,44 @@ func (s *Server) authorize(
 	bindingID string,
 	revision string,
 ) error {
-	if !s.validServiceToken(ctx) {
-		return status.Error(codes.Unauthenticated, "invalid capability service identity")
-	}
-	if capability == nil || capability.GetLease() == nil || capability.GetMeta() == nil {
-		return status.Error(codes.InvalidArgument, "capability lease and request metadata are required")
-	}
-	if capability.GetMeta().GetRequestId() == "" || capability.GetMeta().GetCorrelationId() == "" {
-		return status.Error(codes.InvalidArgument, "capability request identity is required")
+	input, err := s.authorizeRun(ctx, capability)
+	if err != nil {
+		return err
 	}
 	if bindingID != s.bindingID || !revisionPattern.MatchString(revision) {
 		return status.Error(codes.PermissionDenied, "repository binding or revision is not allowed")
 	}
+	if input.RepositoryBindingID != bindingID || input.RepositoryRevision != revision {
+		return status.Error(codes.PermissionDenied, "repository capability is not bound to this Agent Run")
+	}
+	return nil
+}
+
+func (s *Server) authorizeRun(ctx context.Context, capability *agentv1.CapabilityLease) (runcontrol.AgentRunInput, error) {
+	if !s.validServiceToken(ctx) {
+		return runcontrol.AgentRunInput{}, status.Error(codes.Unauthenticated, "invalid capability service identity")
+	}
+	if capability == nil || capability.GetLease() == nil || capability.GetMeta() == nil {
+		return runcontrol.AgentRunInput{}, status.Error(codes.InvalidArgument, "capability lease and request metadata are required")
+	}
+	if capability.GetMeta().GetRequestId() == "" || capability.GetMeta().GetCorrelationId() == "" {
+		return runcontrol.AgentRunInput{}, status.Error(codes.InvalidArgument, "capability request identity is required")
+	}
 	lease, err := leaseFromProto(capability.GetLease())
 	if err != nil {
-		return status.Error(codes.InvalidArgument, err.Error())
+		return runcontrol.AgentRunInput{}, status.Error(codes.InvalidArgument, err.Error())
 	}
 	input, err := s.store.GetRunContext(ctx, lease)
 	if err != nil {
 		if errors.Is(err, runcontrol.ErrLeaseLost) || errors.Is(err, runcontrol.ErrNotFound) {
-			return status.Error(codes.PermissionDenied, "Agent Run lease is not active")
+			return runcontrol.AgentRunInput{}, status.Error(codes.PermissionDenied, "Agent Run lease is not active")
 		}
-		return status.Error(codes.Internal, "validate Agent Run lease")
+		return runcontrol.AgentRunInput{}, status.Error(codes.Internal, "validate Agent Run lease")
 	}
-	if input.Run.TenantID == "" || input.Run.OwnerID == "" ||
-		input.RepositoryBindingID != bindingID || input.RepositoryRevision != revision {
-		return status.Error(codes.PermissionDenied, "repository capability is not bound to this Agent Run")
+	if input.Run.TenantID == "" || input.Run.OwnerID == "" || input.Run.RunID != lease.RunID {
+		return runcontrol.AgentRunInput{}, status.Error(codes.PermissionDenied, "capability is not bound to this Agent Run")
 	}
-	return nil
+	return input, nil
 }
 
 func (s *Server) validServiceToken(ctx context.Context) bool {

@@ -55,46 +55,55 @@ type memoryOutbox struct {
 }
 
 type MemoryStore struct {
-	mu                        sync.RWMutex
-	policy                    QueuePolicy
-	tasks                     map[string]Task
-	runs                      map[string]AgentRun
-	idempotency               map[string]memoryIdempotency
-	outbox                    map[string]*memoryOutbox
-	checkpoints               map[string]memoryCheckpoint
-	attempts                  map[string]memoryAttempt
-	evidence                  map[string]EvidenceRecord
-	artifacts                 map[string]RunArtifact
-	drafts                    map[string]memoryDraft
-	events                    map[string][]TaskEvent
-	dispatches                map[string]AgentDispatch
-	lastScheduled             map[string]time.Time
-	retryIdempotency          map[string]memoryRetryIdempotency
-	publishes                 map[string]memoryPublish
-	publishPreviewIdempotency map[string]string
-	publishConfirmIdempotency map[string]string
-	confirmationVersions      map[string]memoryConfirmationVersion
-	confirmationDecisions     map[string]memoryConfirmationDecision
-	revisionScopes            map[string]RevisionScope
-	budgets                   map[string]memoryBudgetState
-	ledgerEntries             map[string]LedgerEntry
-	unitScopes                map[string]UnitScope
-	runOutputs                map[string]RunOutput
-	runOutputReceipts         map[string]RunOutputReceipt
-	reviewOutlines            map[string]ReviewOutlineVersion
-	reviewUnits               map[string]map[string]ReviewUnit
-	reviewTransitions         map[string]memoryReviewTransition
-	fullReviewReports         map[string]FullReviewReport
-	gateDecisionRecords       map[string]GateDecisionRecord
-	rolloutStageState         RolloutStageState
-	drainRecords              map[string]DrainRecord
-	rolloutAssignments        map[string]RolloutAssignment
-	rolloutOperatorResults    map[string]RolloutOperatorResult
-	rolloutCommandHashes      map[string]string
-	rolloutGateResults        map[string]RolloutGateOperatorResult
-	rolloutStageResults       map[string]RolloutStageOperatorResult
-	readinessRecords          map[string]ReadinessRecord
-	readinessResults          map[string]ReadinessOperatorResult
+	mu                            sync.RWMutex
+	policy                        QueuePolicy
+	tasks                         map[string]Task
+	runs                          map[string]AgentRun
+	idempotency                   map[string]memoryIdempotency
+	outbox                        map[string]*memoryOutbox
+	checkpoints                   map[string]memoryCheckpoint
+	attempts                      map[string]memoryAttempt
+	evidence                      map[string]EvidenceRecord
+	artifacts                     map[string]RunArtifact
+	drafts                        map[string]memoryDraft
+	events                        map[string][]TaskEvent
+	dispatches                    map[string]AgentDispatch
+	lastScheduled                 map[string]time.Time
+	retryIdempotency              map[string]memoryRetryIdempotency
+	publishes                     map[string]memoryPublish
+	publishPreviewIdempotency     map[string]string
+	publishConfirmIdempotency     map[string]string
+	confirmationVersions          map[string]memoryConfirmationVersion
+	confirmationDecisions         map[string]memoryConfirmationDecision
+	revisionScopes                map[string]RevisionScope
+	budgets                       map[string]memoryBudgetState
+	ledgerEntries                 map[string]LedgerEntry
+	unitScopes                    map[string]UnitScope
+	runOutputs                    map[string]RunOutput
+	runOutputReceipts             map[string]RunOutputReceipt
+	reviewOutlines                map[string]ReviewOutlineVersion
+	reviewUnits                   map[string]map[string]ReviewUnit
+	reviewTransitions             map[string]memoryReviewTransition
+	fullReviewReports             map[string]FullReviewReport
+	gateDecisionRecords           map[string]GateDecisionRecord
+	rolloutStageState             RolloutStageState
+	drainRecords                  map[string]DrainRecord
+	rolloutAssignments            map[string]RolloutAssignment
+	rolloutOperatorResults        map[string]RolloutOperatorResult
+	rolloutCommandHashes          map[string]string
+	rolloutGateResults            map[string]RolloutGateOperatorResult
+	rolloutStageResults           map[string]RolloutStageOperatorResult
+	readinessRecords              map[string]ReadinessRecord
+	readinessResults              map[string]ReadinessOperatorResult
+	memorySpaces                  map[string]MemorySpace
+	taskMemorySpaces              map[string]string
+	runMemoryAssignments          map[string]RunMemoryAssignment
+	projectMemoryRecords          map[string]ProjectMemoryRecord
+	projectMemoryVersions         map[string][]ProjectMemoryVersion
+	projectMemoryCandidates       map[string]ProjectMemoryCandidate
+	projectMemoryConflicts        map[string]ProjectMemoryConflict
+	projectMemoryCommandHashes    map[string]string
+	projectMemoryCommandResources map[string]string
 }
 
 type memoryCheckpoint struct {
@@ -184,45 +193,54 @@ func NewMemoryStore(policy QueuePolicy) *MemoryStore {
 		policy.DefaultRunBudget = defaultV4RunBudget()
 	}
 	return &MemoryStore{
-		policy:                    policy,
-		tasks:                     make(map[string]Task),
-		runs:                      make(map[string]AgentRun),
-		idempotency:               make(map[string]memoryIdempotency),
-		outbox:                    make(map[string]*memoryOutbox),
-		checkpoints:               make(map[string]memoryCheckpoint),
-		attempts:                  make(map[string]memoryAttempt),
-		evidence:                  make(map[string]EvidenceRecord),
-		artifacts:                 make(map[string]RunArtifact),
-		drafts:                    make(map[string]memoryDraft),
-		events:                    make(map[string][]TaskEvent),
-		dispatches:                make(map[string]AgentDispatch),
-		lastScheduled:             make(map[string]time.Time),
-		retryIdempotency:          make(map[string]memoryRetryIdempotency),
-		publishes:                 make(map[string]memoryPublish),
-		publishPreviewIdempotency: make(map[string]string),
-		publishConfirmIdempotency: make(map[string]string),
-		confirmationVersions:      make(map[string]memoryConfirmationVersion),
-		confirmationDecisions:     make(map[string]memoryConfirmationDecision),
-		revisionScopes:            make(map[string]RevisionScope),
-		budgets:                   make(map[string]memoryBudgetState),
-		ledgerEntries:             make(map[string]LedgerEntry),
-		unitScopes:                make(map[string]UnitScope),
-		runOutputs:                make(map[string]RunOutput),
-		runOutputReceipts:         make(map[string]RunOutputReceipt),
-		reviewOutlines:            make(map[string]ReviewOutlineVersion),
-		reviewUnits:               make(map[string]map[string]ReviewUnit),
-		reviewTransitions:         make(map[string]memoryReviewTransition),
-		fullReviewReports:         make(map[string]FullReviewReport),
-		gateDecisionRecords:       make(map[string]GateDecisionRecord),
-		rolloutStageState:         RolloutStageState{Stage: RolloutLocalOnly, Version: 1},
-		drainRecords:              make(map[string]DrainRecord),
-		rolloutAssignments:        make(map[string]RolloutAssignment),
-		rolloutOperatorResults:    make(map[string]RolloutOperatorResult),
-		rolloutCommandHashes:      make(map[string]string),
-		rolloutGateResults:        make(map[string]RolloutGateOperatorResult),
-		rolloutStageResults:       make(map[string]RolloutStageOperatorResult),
-		readinessRecords:          make(map[string]ReadinessRecord),
-		readinessResults:          make(map[string]ReadinessOperatorResult),
+		policy:                        policy,
+		tasks:                         make(map[string]Task),
+		runs:                          make(map[string]AgentRun),
+		idempotency:                   make(map[string]memoryIdempotency),
+		outbox:                        make(map[string]*memoryOutbox),
+		checkpoints:                   make(map[string]memoryCheckpoint),
+		attempts:                      make(map[string]memoryAttempt),
+		evidence:                      make(map[string]EvidenceRecord),
+		artifacts:                     make(map[string]RunArtifact),
+		drafts:                        make(map[string]memoryDraft),
+		events:                        make(map[string][]TaskEvent),
+		dispatches:                    make(map[string]AgentDispatch),
+		lastScheduled:                 make(map[string]time.Time),
+		retryIdempotency:              make(map[string]memoryRetryIdempotency),
+		publishes:                     make(map[string]memoryPublish),
+		publishPreviewIdempotency:     make(map[string]string),
+		publishConfirmIdempotency:     make(map[string]string),
+		confirmationVersions:          make(map[string]memoryConfirmationVersion),
+		confirmationDecisions:         make(map[string]memoryConfirmationDecision),
+		revisionScopes:                make(map[string]RevisionScope),
+		budgets:                       make(map[string]memoryBudgetState),
+		ledgerEntries:                 make(map[string]LedgerEntry),
+		unitScopes:                    make(map[string]UnitScope),
+		runOutputs:                    make(map[string]RunOutput),
+		runOutputReceipts:             make(map[string]RunOutputReceipt),
+		reviewOutlines:                make(map[string]ReviewOutlineVersion),
+		reviewUnits:                   make(map[string]map[string]ReviewUnit),
+		reviewTransitions:             make(map[string]memoryReviewTransition),
+		fullReviewReports:             make(map[string]FullReviewReport),
+		gateDecisionRecords:           make(map[string]GateDecisionRecord),
+		rolloutStageState:             RolloutStageState{Stage: RolloutLocalOnly, Version: 1},
+		drainRecords:                  make(map[string]DrainRecord),
+		rolloutAssignments:            make(map[string]RolloutAssignment),
+		rolloutOperatorResults:        make(map[string]RolloutOperatorResult),
+		rolloutCommandHashes:          make(map[string]string),
+		rolloutGateResults:            make(map[string]RolloutGateOperatorResult),
+		rolloutStageResults:           make(map[string]RolloutStageOperatorResult),
+		readinessRecords:              make(map[string]ReadinessRecord),
+		readinessResults:              make(map[string]ReadinessOperatorResult),
+		memorySpaces:                  make(map[string]MemorySpace),
+		taskMemorySpaces:              make(map[string]string),
+		runMemoryAssignments:          make(map[string]RunMemoryAssignment),
+		projectMemoryRecords:          make(map[string]ProjectMemoryRecord),
+		projectMemoryVersions:         make(map[string][]ProjectMemoryVersion),
+		projectMemoryCandidates:       make(map[string]ProjectMemoryCandidate),
+		projectMemoryConflicts:        make(map[string]ProjectMemoryConflict),
+		projectMemoryCommandHashes:    make(map[string]string),
+		projectMemoryCommandResources: make(map[string]string),
 	}
 }
 
@@ -287,6 +305,9 @@ func (s *MemoryStore) CreateTaskWithRun(_ context.Context, tenantID, ownerID, me
 	}
 	s.tasks[taskID] = task
 	s.runs[runID] = run
+	space := s.ensureDefaultMemorySpaceLocked(tenantID, ownerID, now)
+	s.taskMemorySpaces[taskID] = space.SpaceID
+	s.runMemoryAssignments[runID] = buildRunMemoryAssignment(runID, space, now)
 	if workflowVersion == WorkflowVersionV4 {
 		outlineScope, scopeErr := BuildUnitScope(UnitScope{Purpose: RunPurposePlanOutline})
 		if scopeErr != nil {
@@ -362,6 +383,11 @@ func (s *MemoryStore) RetryTask(_ context.Context, tenantID, ownerID, taskID, id
 		Status:                 status, QueueSlotAcquired: status == RunQueued, CreatedAt: now, UpdatedAt: now,
 	}
 	s.runs[runID] = run
+	if spaceID := s.taskMemorySpaces[taskID]; spaceID != "" {
+		if space, ok := s.memorySpaces[spaceID]; ok {
+			s.runMemoryAssignments[runID] = buildRunMemoryAssignment(runID, space, now)
+		}
+	}
 	if inheritedScope, ok := s.inheritedUnitScopeLocked(taskID); ok {
 		s.unitScopes[runID] = inheritedScope
 	}
@@ -767,6 +793,13 @@ func (s *MemoryStore) GetRunContext(_ context.Context, lease LeaseContext) (Agen
 		input.ShadowWorkflow = assignment.ShadowWorkflowVersion
 		input.CandidatePolicyVersion = assignment.PolicyVersion
 		input.AssignmentHash = assignment.AssignmentHash
+	}
+	if assignment, ok := s.runMemoryAssignments[lease.RunID]; ok {
+		input.MemorySpaceID = assignment.SpaceID
+		input.MemoryWatermark = assignment.MemoryWatermark
+		input.MemoryPolicyVersion = assignment.PolicyVersion
+		input.MemoryAccessScopeHash = assignment.AccessScopeHash
+		input.MemoryAssignmentHash = assignment.AssignmentHash
 	}
 	return input, nil
 }
@@ -1777,7 +1810,7 @@ func (s *MemoryStore) hasEvidenceRefLocked(runID, ref string) bool {
 func ledgerMapKey(runID, operationKey string) string { return runID + "\x00" + operationKey }
 
 func validLedgerKind(kind LedgerEntryKind) bool {
-	return kind == LedgerEntryModel || kind == LedgerEntryCapability || kind == LedgerEntryLocalTransition
+	return kind == LedgerEntryModel || kind == LedgerEntryCapability || kind == LedgerEntryLocalTransition || kind == LedgerEntryLocalDerivation
 }
 
 func sameLedgerIdentity(left, right LedgerEntry) bool {

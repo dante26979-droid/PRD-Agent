@@ -61,6 +61,19 @@ func (s *PostgresStore) GetRunContext(ctx context.Context, lease runcontrol.Leas
 	} else if !errors.Is(err, pgx.ErrNoRows) {
 		return runcontrol.AgentRunInput{}, err
 	}
+	var memoryAssignment runcontrol.RunMemoryAssignment
+	if err := tx.QueryRow(ctx, `SELECT space_id,memory_watermark,policy_version,access_scope_hash,assignment_hash,created_at FROM go_run_memory_assignments WHERE run_id=$1`, lease.RunID).Scan(
+		&memoryAssignment.SpaceID, &memoryAssignment.MemoryWatermark, &memoryAssignment.PolicyVersion,
+		&memoryAssignment.AccessScopeHash, &memoryAssignment.AssignmentHash, &memoryAssignment.CreatedAt,
+	); err == nil {
+		input.MemorySpaceID = memoryAssignment.SpaceID
+		input.MemoryWatermark = memoryAssignment.MemoryWatermark
+		input.MemoryPolicyVersion = memoryAssignment.PolicyVersion
+		input.MemoryAccessScopeHash = memoryAssignment.AccessScopeHash
+		input.MemoryAssignmentHash = memoryAssignment.AssignmentHash
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return runcontrol.AgentRunInput{}, err
+	}
 	var checkpoint []byte
 	if err := tx.QueryRow(ctx, `SELECT checkpoint_blob,sequence,content_hash FROM go_run_checkpoints WHERE run_id=$1 ORDER BY sequence DESC LIMIT 1`, lease.RunID).Scan(&checkpoint, &input.CheckpointSequence, &input.ResumeSummary.CheckpointContentHash); err == nil {
 		input.Checkpoint = append([]byte(nil), checkpoint...)

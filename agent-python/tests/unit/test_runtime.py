@@ -7,6 +7,7 @@ import pytest
 from agent.bootstrap import DeterministicStructuredModel
 from agent.checkpoint import CheckpointCodec
 from agent.context import RunContext
+from agent.context_pack import ContextPolicy
 from agent.graph import LangGraphAgentLoop
 from agent.model import ModelResponse
 from agent.quality import DraftQualityPolicy
@@ -207,3 +208,58 @@ def test_reviewable_runtime_locks_provider_unit_identity_to_scope() -> None:
     assert payload["title"] == "需求与验收"
     assert payload["ordinal"] == 1
     assert payload["node_keys"] == ["requirements"]
+
+
+def test_scoped_v4_path_applies_context_policy_even_without_entering_state_graph() -> None:
+    sink = BufferedRuntimeEventSink()
+    base = _context(_scope_proto())
+    context = RunContext(
+        **{
+            **base.__dict__,
+            "event_sink": sink,
+            "execution_ledger_version": "run-ledger.v1",
+            "run_budget": proto.RunBudget(
+                max_model_attempts=4,
+                max_tool_calls=2,
+                max_iterations=2,
+                max_replans=1,
+                max_supplements=1,
+                max_quality_repairs=1,
+                max_input_tokens=50_000,
+                max_output_tokens=10_000,
+                max_elapsed_ms=60_000,
+            ),
+            "consumed_budget": proto.ConsumedBudget(),
+        }
+    )
+
+    class CapturingModel(DeterministicStructuredModel):
+        request: dict[str, object] | None = None
+
+        def complete(self, system_prompt: str, user_prompt: str) -> ModelResponse:
+            self.request = json.loads(user_prompt)
+            return super().complete(system_prompt, user_prompt)
+
+    model = CapturingModel()
+    result = LangGraphAgentLoop(
+        model=model,
+        checkpoint_codec=CheckpointCodec(),
+        quality_policy=DraftQualityPolicy(),
+        context_policy=ContextPolicy(
+            version="context-policy.v1",
+            mode="enforce",
+            context_window_tokens=8_000,
+            compact_threshold_tokens=5_000,
+            target_input_tokens=4_000,
+            reserved_output_tokens=1_000,
+            emergency_margin_tokens=500,
+        ),
+    )(context)
+
+    assert result.run_output is not None
+    assert model.request is not None
+    assert model.request["context_pack"]["policy_version"] == "context-policy.v1"
+    assert [item.artifact_type for item in sink.artifacts[:2]] == [
+        "CONTEXT_PACK",
+        "MODEL_VALIDATED_OUTPUT",
+    ]

@@ -45,6 +45,20 @@ func TestInputToProtoCarriesDurableShadowEvaluationContext(t *testing.T) {
 	}
 }
 
+func TestInputToProtoCarriesFixedProjectMemoryAssignment(t *testing.T) {
+	value := inputToProto(runcontrol.AgentRunInput{
+		Run:                   runcontrol.AgentRun{RunID: "run-memory", TaskID: "task-memory"},
+		MemorySpaceID:         "space-1",
+		MemoryWatermark:       17,
+		MemoryPolicyVersion:   "project-memory-policy.v1",
+		MemoryAccessScopeHash: "sha256:access",
+		MemoryAssignmentHash:  "sha256:memory-assignment",
+	})
+	if value.MemorySpaceId != "space-1" || value.MemoryWatermark != 17 || value.MemoryPolicyVersion != "project-memory-policy.v1" || value.MemoryAccessScopeHash != "sha256:access" || value.MemoryAssignmentHash != "sha256:memory-assignment" {
+		t.Fatalf("project memory assignment missing from contract: %+v", value)
+	}
+}
+
 func TestRunOutputFromProtoRejectsUnspecifiedPurpose(t *testing.T) {
 	_, err := runOutputFromProto(&agentv1.RunOutput{
 		OutputKind: agentv1.RunOutputKind_RUN_OUTPUT_KIND_UNIT_CANDIDATE,

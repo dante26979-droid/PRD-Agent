@@ -18,7 +18,7 @@ import (
 // This fixture starts from a real 0015 schema with durable v1 rows, then runs
 // the remaining migrations exactly as production does. It catches upgrade-only
 // failures which a green-field database cannot expose.
-func TestMigrationsUpgradeLegacy0015RowsThrough0021(t *testing.T) {
+func TestMigrationsUpgradeLegacy0015RowsThrough0023(t *testing.T) {
 	dsn := os.Getenv("PRD_AGENT_TEST_DATABASE_DSN")
 	if dsn == "" {
 		t.Skip("PRD_AGENT_TEST_DATABASE_DSN is not configured")
@@ -68,7 +68,7 @@ func TestMigrationsUpgradeLegacy0015RowsThrough0021(t *testing.T) {
 	}
 
 	if err := ApplyMigrations(ctx, pool, postDir); err != nil {
-		t.Fatalf("upgrade legacy database through 0021: %v", err)
+		t.Fatalf("upgrade legacy database through 0023: %v", err)
 	}
 	// Running the exact set again must be a no-op.
 	if err := ApplyMigrations(ctx, pool, postDir); err != nil {
@@ -85,8 +85,8 @@ func TestMigrationsUpgradeLegacy0015RowsThrough0021(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM go_schema_migrations`).Scan(&migrationCount); err != nil {
 		t.Fatal(err)
 	}
-	if migrationCount != 21 {
-		t.Fatalf("expected migration head 0021, got %d applied files", migrationCount)
+	if migrationCount != 23 {
+		t.Fatalf("expected migration head 0023, got %d applied files", migrationCount)
 	}
 	if _, err := pool.Exec(ctx, `INSERT INTO go_rollout_commands (command_id,command_kind,request_hash,expected_state_version,result_state_version,evidence_hash,actor_ref,result_json,created_at) VALUES ('fixture-command','RECORD_READINESS','sha256:request',1,1,'sha256:evidence','fixture:test','{}',$1)`, now); err != nil {
 		t.Fatalf("0021 command kind was not accepted: %v", err)

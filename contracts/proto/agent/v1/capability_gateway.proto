@@ -13,6 +13,7 @@ service CapabilityGatewayService {
 	rpc SearchPrdCatalog(SearchPrdCatalogRequest) returns (SearchPrdCatalogResponse);
 	rpc FetchPrdSections(FetchPrdSectionsRequest) returns (FetchPrdSectionsResponse);
 	rpc CreateExportIntent(CreateExportIntentRequest) returns (CreateExportIntentResponse);
+	rpc SearchProjectMemory(SearchProjectMemoryRequest) returns (SearchProjectMemoryResponse);
 }
 
 message CapabilityLease {
@@ -113,3 +114,54 @@ message ExportIntentReceipt {
 }
 
 message CreateExportIntentResponse { ExportIntentReceipt receipt = 1; }
+
+message SearchProjectMemoryRequest {
+  CapabilityLease capability = 1;
+  string query = 2;
+  string operation = 3;
+  repeated string memory_types = 4;
+  repeated string tags = 5;
+  int32 limit = 6;
+}
+
+message ProjectMemorySourceRef {
+  string source_kind = 1;
+  string binding_id = 2;
+  string source_id = 3;
+  string source_version = 4;
+  string locator = 5;
+  string content_hash = 6;
+  string access_scope_hash = 7;
+}
+
+message ProjectMemoryItem {
+  string memory_id = 1;
+  int64 version = 2;
+  string memory_type = 3;
+  string subject = 4;
+  string predicate = 5;
+  string value_json = 6;
+  string statement = 7;
+  string authority_class = 8;
+  repeated string tags = 9;
+  string sensitivity = 10;
+  repeated ProjectMemorySourceRef source_refs = 11;
+  int64 committed_epoch = 12;
+  string content_hash = 13;
+}
+
+message ProjectMemoryConflict {
+  string conflict_id = 1;
+  string subject = 2;
+  string predicate = 3;
+  repeated string memory_ids = 4;
+}
+
+message SearchProjectMemoryResponse {
+  string space_id = 1;
+  int64 memory_watermark = 2;
+  repeated ProjectMemoryItem records = 3;
+  repeated ProjectMemoryConflict conflicts = 4;
+  int32 excluded_count = 5;
+  string source_set_hash = 6;
+}

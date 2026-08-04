@@ -187,6 +187,50 @@ def test_local_transition_is_durable_and_budgeted():
     assert ledger.remaining().iterations == 1
 
 
+def test_local_derivation_is_artifact_backed_and_replayable():
+    sink = BufferedRuntimeEventSink()
+    spec = LedgerCallSpec(
+        entry_kind="LOCAL_DERIVATION",
+        operation="build_context_pack",
+        operation_key="context:build:outline:sequence1",
+        request_hash=request_hash({"manifest": "sha256:manifest"}),
+        reservation=BudgetVector(),
+        outcome_schema="context-pack.v1",
+    )
+    ledger = RunExecutionLedger(_context(sink=sink))
+    first = ledger.execute_derivation(
+        spec,
+        lambda: {"schema_version": "context-pack.v1", "pack_id": "pack-1"},
+        lambda value: value,
+        artifact_type="CONTEXT_PACK",
+    )
+
+    assert first.artifact.artifact_type == "CONTEXT_PACK"
+    assert [event.event_type for event in sink.ledger_events] == [
+        "LEDGER_RESERVED",
+        "LEDGER_CALL_STARTED",
+        "LEDGER_FINISHED",
+    ]
+    terminal = sink.ledger_events[-1].entry
+    replay_sink = BufferedRuntimeEventSink()
+    replay = RunExecutionLedger(
+        _context(
+            sink=replay_sink,
+            entries=(terminal,),
+            artifacts=(first.artifact,),
+        )
+    ).execute_derivation(
+        spec,
+        lambda: pytest.fail("derivation must replay"),
+        lambda value: value,
+        artifact_type="CONTEXT_PACK",
+    )
+
+    assert replay.replayed is True
+    assert replay.value["pack_id"] == "pack-1"
+    assert replay_sink.ledger_events == []
+
+
 def test_resume_accepts_ledger_owned_capability_artifact_and_evidence_ahead_of_checkpoint():
     sink = BufferedRuntimeEventSink()
     evidence = proto.EvidenceItem(
@@ -220,4 +264,32 @@ def test_resume_accepts_ledger_owned_capability_artifact_and_evidence_ahead_of_c
     )
 
     validated = ResumeValidator(CheckpointCodec()).hydrate(resumed)
+    assert validated.state is None
+
+
+def test_resume_accepts_ledger_owned_context_pack_ahead_of_checkpoint():
+    sink = BufferedRuntimeEventSink()
+    spec = LedgerCallSpec(
+        entry_kind="LOCAL_DERIVATION",
+        operation="build_context_pack",
+        operation_key="context:build:outline:sequence1",
+        request_hash=request_hash({"context": "pack"}),
+        reservation=BudgetVector(),
+        outcome_schema="context-pack.v1",
+    )
+    outcome = RunExecutionLedger(_context(sink=sink)).execute_derivation(
+        spec,
+        lambda: {"schema_version": "context-pack.v1", "pack_id": "context-1"},
+        lambda value: value,
+        artifact_type="CONTEXT_PACK",
+    )
+    started = sink.ledger_events[1].entry
+    resumed = replace(
+        _context(),
+        ledger_entries=(started,),
+        resume_artifacts=(outcome.artifact,),
+    )
+
+    validated = ResumeValidator(CheckpointCodec()).hydrate(resumed)
+
     assert validated.state is None

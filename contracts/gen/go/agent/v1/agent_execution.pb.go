@@ -471,6 +471,11 @@ type AgentRunInput struct {
 	ShadowWorkflowVersion        string                 `protobuf:"bytes,28,opt,name=shadow_workflow_version,json=shadowWorkflowVersion,proto3" json:"shadow_workflow_version,omitempty"`
 	CandidatePolicyVersion       string                 `protobuf:"bytes,29,opt,name=candidate_policy_version,json=candidatePolicyVersion,proto3" json:"candidate_policy_version,omitempty"`
 	AssignmentHash               string                 `protobuf:"bytes,30,opt,name=assignment_hash,json=assignmentHash,proto3" json:"assignment_hash,omitempty"`
+	MemorySpaceId                string                 `protobuf:"bytes,31,opt,name=memory_space_id,json=memorySpaceId,proto3" json:"memory_space_id,omitempty"`
+	MemoryWatermark              int64                  `protobuf:"varint,32,opt,name=memory_watermark,json=memoryWatermark,proto3" json:"memory_watermark,omitempty"`
+	MemoryPolicyVersion          string                 `protobuf:"bytes,33,opt,name=memory_policy_version,json=memoryPolicyVersion,proto3" json:"memory_policy_version,omitempty"`
+	MemoryAccessScopeHash        string                 `protobuf:"bytes,34,opt,name=memory_access_scope_hash,json=memoryAccessScopeHash,proto3" json:"memory_access_scope_hash,omitempty"`
+	MemoryAssignmentHash         string                 `protobuf:"bytes,35,opt,name=memory_assignment_hash,json=memoryAssignmentHash,proto3" json:"memory_assignment_hash,omitempty"`
 	unknownFields                protoimpl.UnknownFields
 	sizeCache                    protoimpl.SizeCache
 }
@@ -711,6 +716,41 @@ func (x *AgentRunInput) GetCandidatePolicyVersion() string {
 func (x *AgentRunInput) GetAssignmentHash() string {
 	if x != nil {
 		return x.AssignmentHash
+	}
+	return ""
+}
+
+func (x *AgentRunInput) GetMemorySpaceId() string {
+	if x != nil {
+		return x.MemorySpaceId
+	}
+	return ""
+}
+
+func (x *AgentRunInput) GetMemoryWatermark() int64 {
+	if x != nil {
+		return x.MemoryWatermark
+	}
+	return 0
+}
+
+func (x *AgentRunInput) GetMemoryPolicyVersion() string {
+	if x != nil {
+		return x.MemoryPolicyVersion
+	}
+	return ""
+}
+
+func (x *AgentRunInput) GetMemoryAccessScopeHash() string {
+	if x != nil {
+		return x.MemoryAccessScopeHash
+	}
+	return ""
+}
+
+func (x *AgentRunInput) GetMemoryAssignmentHash() string {
+	if x != nil {
+		return x.MemoryAssignmentHash
 	}
 	return ""
 }
@@ -3618,7 +3658,7 @@ const file_agent_v1_agent_execution_proto_rawDesc = "" +
 	"\x14GetRunContextRequest\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12,\n" +
 	"\x05lease\x18\x02 \x01(\v2\x16.agent.v1.LeaseContextR\x05lease\x12)\n" +
-	"\x04meta\x18\x03 \x01(\v2\x15.agent.v1.RequestMetaR\x04meta\"\xb4\f\n" +
+	"\x04meta\x18\x03 \x01(\v2\x15.agent.v1.RequestMetaR\x04meta\"\xaa\x0e\n" +
 	"\rAgentRunInput\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x1b\n" +
 	"\ttenant_id\x18\x02 \x01(\tR\btenantId\x12\x19\n" +
@@ -3656,7 +3696,12 @@ const file_agent_v1_agent_execution_proto_rawDesc = "" +
 	"\x1eauthoritative_workflow_version\x18\x1b \x01(\tR\x1cauthoritativeWorkflowVersion\x126\n" +
 	"\x17shadow_workflow_version\x18\x1c \x01(\tR\x15shadowWorkflowVersion\x128\n" +
 	"\x18candidate_policy_version\x18\x1d \x01(\tR\x16candidatePolicyVersion\x12'\n" +
-	"\x0fassignment_hash\x18\x1e \x01(\tR\x0eassignmentHash\"\xd9\x01\n" +
+	"\x0fassignment_hash\x18\x1e \x01(\tR\x0eassignmentHash\x12&\n" +
+	"\x0fmemory_space_id\x18\x1f \x01(\tR\rmemorySpaceId\x12)\n" +
+	"\x10memory_watermark\x18  \x01(\x03R\x0fmemoryWatermark\x122\n" +
+	"\x15memory_policy_version\x18! \x01(\tR\x13memoryPolicyVersion\x127\n" +
+	"\x18memory_access_scope_hash\x18\" \x01(\tR\x15memoryAccessScopeHash\x124\n" +
+	"\x16memory_assignment_hash\x18# \x01(\tR\x14memoryAssignmentHash\"\xd9\x01\n" +
 	"\x14ConfirmedUnitContext\x12\x19\n" +
 	"\bunit_key\x18\x01 \x01(\tR\aunitKey\x12!\n" +
 	"\funit_version\x18\x02 \x01(\x03R\vunitVersion\x12!\n" +

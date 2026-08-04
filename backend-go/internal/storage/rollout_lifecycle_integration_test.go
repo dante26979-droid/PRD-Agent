@@ -126,7 +126,7 @@ func TestPostgresLifecycleCommandsAndReadinessAreAtomic(t *testing.T) {
 	readiness := runcontrol.ReadinessOperatorCommand{
 		CommandID: "pg-readiness", ExpectedVersion: 2, ActorRef: "integration:test", Apply: true,
 		Input: runcontrol.ReadinessInput{
-			CommitHash: "sha256:commit", MigrationSetHash: "sha256:migrations", MigrationHead: "0021",
+			CommitHash: "sha256:commit", MigrationSetHash: "sha256:migrations", MigrationHead: "0023",
 			ContractReportHash: "sha256:contract", PostgresReportHash: "sha256:postgres",
 			EvalManifestHash: gate.ManifestHash, ShadowPolicyHash: "sha256:shadow",
 			GateDecisionID: gateResult.Record.DecisionID,

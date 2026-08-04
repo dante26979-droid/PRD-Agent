@@ -103,6 +103,42 @@ func TestMemoryLedgerConsumesLocalTransitionAtomically(t *testing.T) {
 	}
 }
 
+func TestMemoryLedgerPersistsLocalDerivationArtifact(t *testing.T) {
+	store, lease := newLedgerMemoryRun(t, RunBudget{MaxElapsedMS: 1000})
+	entry := LedgerEntry{
+		OperationKey: "context:build:outline:sequence1",
+		EntryKind:    LedgerEntryLocalDerivation,
+		Operation:    "build_context_pack",
+		RequestHash:  "sha256:context",
+	}
+	if _, err := store.ReserveLedgerEntry(context.Background(), lease, entry); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.MarkLedgerCallStarted(context.Background(), lease, entry.OperationKey, entry.RequestHash); err != nil {
+		t.Fatal(err)
+	}
+	artifact := RunArtifact{
+		ArtifactKey:  lease.RunID + ":context-pack:1",
+		ArtifactType: "CONTEXT_PACK",
+		RequestHash:  entry.RequestHash,
+		ContentHash:  stableHash("context-pack"),
+		Content:      []byte("context-pack"),
+	}
+	if _, err := store.SaveRunArtifact(context.Background(), lease, artifact); err != nil {
+		t.Fatal(err)
+	}
+	completed, err := store.FinishLedgerEntry(context.Background(), lease, LedgerFinish{
+		OperationKey:       entry.OperationKey,
+		RequestHash:        entry.RequestHash,
+		Status:             LedgerSucceeded,
+		OutputArtifactKey:  artifact.ArtifactKey,
+		OutputArtifactHash: artifact.ContentHash,
+	})
+	if err != nil || completed.EntryKind != LedgerEntryLocalDerivation {
+		t.Fatalf("derivation finish = %+v, %v", completed, err)
+	}
+}
+
 func TestMemoryLedgerEnforcesServerElapsedBudgetBeforeRemoteCall(t *testing.T) {
 	store, lease := newLedgerMemoryRun(t, RunBudget{MaxModelAttempts: 1, MaxElapsedMS: 10})
 	store.mu.Lock()

@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from dataclasses import replace
 import json
-from typing import Mapping
 
-from agent.runtime import BudgetVector, LedgerCallSpec, RunExecutionLedger, RuntimeEventSink
-from agent.runtime.idempotency import canonical_json, request_hash
+from agent.context_pack import ContextPolicy
+from agent.model_execution import ModelCallIntent, ModelExecutionModule
+from agent.runtime import RunExecutionLedger, RuntimeEventSink
+from agent.runtime.idempotency import request_hash
 
 from .artifact import (
     build_plan_artifact_for_run,
@@ -24,12 +25,14 @@ class InformationNeedPlanner:
         ledger: RunExecutionLedger,
         sink: RuntimeEventSink,
         policy: InformationNeedPolicy | None = None,
+        context_policy: ContextPolicy = ContextPolicy(),
         resume_artifacts: tuple[object, ...] = (),
     ) -> None:
         self._model = model
         self._ledger = ledger
         self._sink = sink
         self._policy = policy or InformationNeedPolicy()
+        self._context_policy = context_policy
         self._resume_artifacts = tuple(resume_artifacts)
 
     def plan(self, context: NeedPlanningContext) -> PlannedNeedDecision:
@@ -65,44 +68,30 @@ class InformationNeedPlanner:
                 artifact_request_hash=existing.request_hash,
             )
 
-        request_json = canonical_json(payload).decode("utf-8")
-        spec = LedgerCallSpec(
-            entry_kind="MODEL",
-            operation="plan_information_need",
-            operation_key="model:plan_information_need:plan1",
-            request_hash=plan_request_hash,
-            reservation=BudgetVector(
-                model_attempts=1,
-                input_tokens=max(1, len(request_json.encode("utf-8")) // 4),
-                output_tokens=min(1024, max(self._ledger.remaining().output_tokens, 0)),
+        execution = ModelExecutionModule(
+            self._model,
+            context_policy=self._context_policy,
+        ).execute(
+            context=self._ledger.context,
+            sink=self._sink,
+            ledger=self._ledger,
+            intent=ModelCallIntent(
+                operation="plan_information_need",
+                operation_sequence=1,
+                operation_key="model:plan_information_need:plan1",
+                prompt_version=PROMPT_VERSION,
+                system_prompt=SYSTEM_PROMPT,
+                max_output_tokens=1024,
+                output_schema="information-need-plan-draft.v1",
+                base_request_hash=plan_request_hash,
             ),
-            outcome_schema="information-need-draft.v1",
+            payload=payload,
         )
-
-        def invoke() -> dict[str, object]:
-            response = self._model.complete(SYSTEM_PROMPT, request_json)
-            try:
-                raw = json.loads(response.output)
-            except (TypeError, json.JSONDecodeError) as error:
-                raise ValueError("PLANNER_OUTPUT_INVALID") from error
-            draft = PlannedNeedDraft.from_mapping(raw)
-            return {
-                "draft": draft.as_dict(),
-                "token_usage": dict(response.token_usage),
-                "model_id": response.model_id,
-            }
-
-        outcome = self._ledger.execute_model(
-            spec,
-            invoke,
-            _validate_outcome,
-            consumption=lambda value: BudgetVector(
-                model_attempts=1,
-                input_tokens=spec.reservation.input_tokens,
-                output_tokens=_total_tokens(value["token_usage"]),
-            ),
-        )
-        draft = PlannedNeedDraft.from_mapping(outcome.value["draft"])
+        try:
+            raw = json.loads(execution.response.output)
+        except (TypeError, json.JSONDecodeError) as error:
+            raise ValueError("PLANNER_OUTPUT_INVALID") from error
+        draft = PlannedNeedDraft.from_mapping(raw)
         remaining = self._ledger.remaining()
         effective_context = replace(
             context,
@@ -118,37 +107,8 @@ class InformationNeedPlanner:
         self._sink.artifact(artifact)
         return replace(
             decision,
-            replayed=outcome.replayed,
+            replayed=execution.replayed,
             artifact_key=artifact.artifact_key,
             artifact_hash=artifact.content_hash,
             artifact_request_hash=artifact.request_hash,
         )
-
-
-def _validate_outcome(value: object) -> dict[str, object]:
-    if not isinstance(value, Mapping) or set(value) != {
-        "draft",
-        "token_usage",
-        "model_id",
-    }:
-        raise ValueError("PLANNER_OUTPUT_INVALID")
-    draft = PlannedNeedDraft.from_mapping(value["draft"])
-    usage = value["token_usage"]
-    if not isinstance(usage, Mapping) or any(
-        not isinstance(item, int) or item < 0 for item in usage.values()
-    ):
-        raise ValueError("PLANNER_OUTPUT_INVALID")
-    return {
-        "draft": draft.as_dict(),
-        "token_usage": dict(usage),
-        "model_id": str(value["model_id"]),
-    }
-
-
-def _total_tokens(value: object) -> int:
-    if not isinstance(value, Mapping):
-        return 0
-    total = value.get("total_tokens") or value.get("total")
-    if isinstance(total, int):
-        return total
-    return sum(item for item in value.values() if isinstance(item, int))

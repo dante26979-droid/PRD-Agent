@@ -467,6 +467,8 @@ def build_agent_loop(
             advanced_loop_mode=settings.advanced_loop_mode,
             max_supplements=settings.llm.max_supplements,
             max_quality_repairs=settings.llm.max_quality_repairs,
+            context_policy=settings.context_policy,
+            project_memory_policy=settings.project_memory_policy,
         )
         return ValidatedAgentRuntime(ResumeValidator(CheckpointCodec()), loop)
     if settings.advanced_loop_mode == "enforce":
@@ -478,6 +480,8 @@ def build_agent_loop(
             advanced_loop_mode="enforce",
             max_supplements=0,
             max_quality_repairs=1,
+            context_policy=settings.context_policy,
+            project_memory_policy=settings.project_memory_policy,
         )
         return ValidatedAgentRuntime(ResumeValidator(CheckpointCodec()), loop)
     return DeterministicAgentLoop(

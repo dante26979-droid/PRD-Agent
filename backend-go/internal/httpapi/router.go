@@ -135,6 +135,17 @@ func NewSecureRouter(store runcontrol.Store, resolver PrincipalResolver, publicO
 	group.POST("/tasks/:taskID/publish/feishu/preview", api.previewFeishuPublish)
 	group.POST("/tasks/:taskID/publish/feishu", api.confirmFeishuPublish)
 	group.GET("/tasks/:taskID/publishes", api.listPublishes)
+	group.GET("/memory-spaces", api.listMemorySpaces)
+	group.POST("/memory-spaces", api.createMemorySpace)
+	group.GET("/memory-spaces/:spaceID/records", api.listProjectMemory)
+	group.GET("/memory-spaces/:spaceID/records/:memoryID/versions", api.getProjectMemoryHistory)
+	group.GET("/memory-spaces/:spaceID/conflicts", api.listProjectMemoryConflicts)
+	group.POST("/memory-spaces/:spaceID/search", api.searchProjectMemory)
+	group.GET("/memory-spaces/:spaceID/candidates", api.listProjectMemoryCandidates)
+	group.POST("/memory-spaces/:spaceID/candidates", api.proposeProjectMemory)
+	group.POST("/memory-spaces/:spaceID/candidates/:candidateID/confirm", api.confirmProjectMemoryCandidate)
+	group.POST("/memory-spaces/:spaceID/candidates/:candidateID/reject", api.rejectProjectMemoryCandidate)
+	group.POST("/memory-spaces/:spaceID/records/:memoryID/revoke", api.revokeProjectMemory)
 	return router
 }
 
@@ -680,6 +691,18 @@ func writeStoreError(c *gin.Context, err error) {
 	}
 	if errors.Is(err, runcontrol.ErrInvalidPayload) {
 		writeError(c, http.StatusBadRequest, "INVALID_PAYLOAD", err.Error())
+		return
+	}
+	if errors.Is(err, runcontrol.ErrPayloadTooLarge) {
+		writeError(c, http.StatusRequestEntityTooLarge, "PAYLOAD_TOO_LARGE", err.Error())
+		return
+	}
+	if errors.Is(err, runcontrol.ErrSensitivePayload) {
+		writeError(c, http.StatusUnprocessableEntity, "SENSITIVE_PAYLOAD_REJECTED", err.Error())
+		return
+	}
+	if errors.Is(err, runcontrol.ErrInvalidIdempotency) {
+		writeError(c, http.StatusConflict, "IDEMPOTENCY_CONFLICT", err.Error())
 		return
 	}
 	if errors.Is(err, runcontrol.ErrTaskVersionConflict) {

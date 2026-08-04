@@ -61,5 +61,10 @@ class RunContext:
     shadow_workflow_version: str = ""
     candidate_policy_version: str = ""
     assignment_hash: str = ""
+    memory_space_id: str = ""
+    memory_watermark: int = 0
+    memory_policy_version: str = ""
+    memory_access_scope_hash: str = ""
+    memory_assignment_hash: str = ""
     plan_model_attempt: Callable[[proto.RecordModelAttemptRequest], None] | None = None
     event_sink: RuntimeEventSink | None = None

@@ -13,8 +13,11 @@ class AgentState(TypedDict, total=False):
     phase: str
     iteration: int
     model_attempt_count: int
+    business_model_attempt_count: int
+    context_compaction_attempt_count: int
     tool_call_count: int
     token_usage: int
+    context_compaction_token_usage: int
     replan_count: int
     no_progress_rounds: int
     coverage: dict[str, str]
@@ -32,6 +35,24 @@ class AgentState(TypedDict, total=False):
     last_execution_evidence_count: int
     last_knowledge_progressed: bool
     last_model_attempt_key: str | None
+    context_pack_id: str
+    context_pack_artifact_key: str
+    context_pack_artifact_hash: str
+    context_policy_version: str
+    context_source_manifest_hash: str
+    context_compaction_kind: str
+    context_tokens_before: int
+    context_tokens_after: int
+    memory_bundle_id: str
+    memory_bundle_artifact_key: str
+    memory_bundle_artifact_hash: str
+    memory_policy_version: str
+    memory_space_id: str
+    memory_watermark: int
+    memory_source_set_hash: str
+    memory_recall_count: int
+    memory_record_count: int
+    memory_conflict_count: int
     checkpoint_sequence: int
     draft_generation: int
     supplement_count: int

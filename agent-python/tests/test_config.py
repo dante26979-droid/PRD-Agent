@@ -54,3 +54,55 @@ def test_loop_mode_rejects_unknown_runtime(monkeypatch):
 
     with pytest.raises(RuntimeError, match="langgraph, legacy"):
         AgentSettings.load()
+
+
+def test_context_policy_is_explicit_and_bounded(monkeypatch):
+    monkeypatch.setenv("PRD_AGENT_ENVIRONMENT", "test")
+    monkeypatch.setenv("PRD_AGENT_CONTEXT_POLICY_MODE", "shadow")
+    monkeypatch.setenv("PRD_AGENT_CONTEXT_POLICY_VERSION", "context-policy.v1-shadow")
+    monkeypatch.setenv("PRD_AGENT_CONTEXT_WINDOW_TOKENS", "8000")
+    monkeypatch.setenv("PRD_AGENT_CONTEXT_COMPACT_THRESHOLD_TOKENS", "5000")
+    monkeypatch.setenv("PRD_AGENT_CONTEXT_TARGET_INPUT_TOKENS", "3000")
+    monkeypatch.setenv("PRD_AGENT_CONTEXT_RESERVED_OUTPUT_TOKENS", "1000")
+    monkeypatch.setenv("PRD_AGENT_CONTEXT_EMERGENCY_MARGIN_TOKENS", "500")
+
+    settings = AgentSettings.load()
+
+    assert settings.context_policy.mode == "shadow"
+    assert settings.context_policy.version == "context-policy.v1-shadow"
+    assert settings.context_policy.hard_input_tokens == 6500
+
+
+def test_context_compression_rejects_legacy_loop(monkeypatch):
+    monkeypatch.setenv("PRD_AGENT_ENVIRONMENT", "test")
+    monkeypatch.setenv("PRD_AGENT_AGENT_LOOP_MODE", "legacy")
+    monkeypatch.setenv("PRD_AGENT_CONTEXT_POLICY_MODE", "enforce")
+
+    with pytest.raises(RuntimeError, match="requires.*langgraph"):
+        AgentSettings.load()
+
+
+def test_project_memory_policy_is_explicit_and_bounded(monkeypatch):
+    monkeypatch.setenv("PRD_AGENT_ENVIRONMENT", "test")
+    monkeypatch.setenv("PRD_AGENT_PROJECT_MEMORY_MODE", "shadow")
+    monkeypatch.setenv(
+        "PRD_AGENT_PROJECT_MEMORY_POLICY_VERSION", "project-memory-policy.v1-shadow"
+    )
+    monkeypatch.setenv("PRD_AGENT_PROJECT_MEMORY_MAX_RECORDS", "9")
+    monkeypatch.setenv("PRD_AGENT_PROJECT_MEMORY_MAX_QUERY_CHARS", "600")
+
+    settings = AgentSettings.load()
+
+    assert settings.project_memory_policy.mode == "shadow"
+    assert settings.project_memory_policy.version == "project-memory-policy.v1-shadow"
+    assert settings.project_memory_policy.max_records == 9
+    assert settings.project_memory_policy.max_query_chars == 600
+
+
+def test_project_memory_rejects_legacy_loop(monkeypatch):
+    monkeypatch.setenv("PRD_AGENT_ENVIRONMENT", "test")
+    monkeypatch.setenv("PRD_AGENT_AGENT_LOOP_MODE", "legacy")
+    monkeypatch.setenv("PRD_AGENT_PROJECT_MEMORY_MODE", "enforce")
+
+    with pytest.raises(RuntimeError, match="project memory requires.*langgraph"):
+        AgentSettings.load()
