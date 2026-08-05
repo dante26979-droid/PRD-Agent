@@ -210,6 +210,49 @@ def test_reviewable_runtime_locks_provider_unit_identity_to_scope() -> None:
     assert payload["node_keys"] == ["requirements"]
 
 
+def test_reviewable_runtime_normalizes_provider_unit_output_contract_envelope() -> None:
+    class OutputContractEnvelopeModel:
+        def complete(self, system_prompt: str, user_prompt: str) -> ModelResponse:
+            return ModelResponse(
+                output=json.dumps(
+                    {
+                        "base_candidate": None,
+                        "expected_schema": "unit-candidate.v1",
+                        "instruction": (
+                            "Return only the requested schema and do not write "
+                            "outside current_unit_key."
+                        ),
+                        "output_contract": {
+                            "schema_version": "unit-candidate.v1",
+                            "unit_key": "requirements",
+                            "title": "需求与验收",
+                            "ordinal": 1,
+                            "node_keys": ["requirements"],
+                            "markdown": "## 目标\n\n完成生产冒烟验证。\n\n## 验收标准\n\n- 完整流程通过。",
+                            "claims": [],
+                            "claim_ids": [],
+                            "unknown_ids": [],
+                            "used_fact_ids": [],
+                        },
+                    },
+                    ensure_ascii=False,
+                ),
+                token_usage={"total_tokens": 1},
+                model_id="provider-model",
+            )
+
+    result = LangGraphAgentLoop(
+        model=OutputContractEnvelopeModel(),
+        checkpoint_codec=CheckpointCodec(),
+        quality_policy=DraftQualityPolicy(),
+    )(_context(_scope_proto()))
+
+    assert result.run_output is not None
+    payload = json.loads(result.run_output.payload)
+    assert payload["unit_key"] == "requirements"
+    assert payload["markdown"].startswith("# 需求与验收\n\n## 目标")
+
+
 def test_scoped_v4_path_applies_context_policy_even_without_entering_state_graph() -> None:
     sink = BufferedRuntimeEventSink()
     base = _context(_scope_proto())
