@@ -2,7 +2,6 @@ package transport
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"github.com/dante26979-droid/prd-agent/backend-go/internal/runcontrol"
@@ -33,11 +32,17 @@ func (p *RedisStreamPublisher) Ping(ctx context.Context) error {
 }
 
 func (p *RedisStreamPublisher) Publish(ctx context.Context, message runcontrol.OutboxMessage) error {
-	values := map[string]any{
+	return p.client.XAdd(ctx, &redis.XAddArgs{
+		Stream: AgentRunStream,
+		Values: redisStreamValues(message),
+	}).Err()
+}
+
+func redisStreamValues(message runcontrol.OutboxMessage) map[string]any {
+	return map[string]any{
 		"message_id":   message.MessageID,
 		"aggregate_id": message.AggregateID,
 		"event_type":   message.EventType,
-		"payload":      json.RawMessage(message.Payload),
+		"payload":      []byte(message.Payload),
 	}
-	return p.client.XAdd(ctx, &redis.XAddArgs{Stream: AgentRunStream, Values: values}).Err()
 }

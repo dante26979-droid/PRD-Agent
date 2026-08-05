@@ -179,7 +179,10 @@ class ReviewableUnitRuntime:
                 "title": "exact unit_scope.current_unit_title",
                 "ordinal": "exact unit_scope.current_unit_ordinal",
                 "node_keys": ["exact unit_scope.section_node_keys values"],
-                "markdown": "non-empty markdown string",
+                "markdown": (
+                    "non-empty markdown string whose first heading is exact "
+                    "unit_scope.current_unit_title"
+                ),
                 "claims": [],
                 "claim_ids": [],
                 "unknown_ids": [],
@@ -202,6 +205,9 @@ class ReviewableUnitRuntime:
     def _outline_candidate(
         request: UnitRunRequest, value: Mapping[str, object]
     ) -> Mapping[str, object]:
+        value = ReviewableUnitRuntime._schema_payload(
+            value, "outline-candidate.v1"
+        )
         if value.get("schema_version") == "outline-candidate.v1" and all(
             key in value for key in ("title", "requirement_size", "nodes", "units")
         ):
@@ -295,13 +301,16 @@ class ReviewableUnitRuntime:
     def _unit_candidate(
         request: UnitRunRequest, value: Mapping[str, object]
     ) -> Mapping[str, object]:
+        value = ReviewableUnitRuntime._schema_payload(value, "unit-candidate.v1")
         return {
             "schema_version": "unit-candidate.v1",
             "unit_key": request.scope.current_unit_key,
             "title": request.scope.current_unit_title,
             "ordinal": request.scope.current_unit_ordinal,
             "node_keys": list(request.scope.section_node_keys),
-            "markdown": value.get("markdown", ""),
+            "markdown": ReviewableUnitRuntime._locked_markdown(
+                request.scope.current_unit_title, value.get("markdown", "")
+            ),
             "claims": value.get("claims", []),
             "claim_ids": value.get("claim_ids", []),
             "unknown_ids": value.get("unknown_ids", []),
@@ -312,18 +321,44 @@ class ReviewableUnitRuntime:
     def _unit_patch(
         request: UnitRunRequest, value: Mapping[str, object]
     ) -> Mapping[str, object]:
+        value = ReviewableUnitRuntime._schema_payload(value, "unit-patch.v1")
         return {
             "schema_version": "unit-patch.v1",
             "unit_key": request.scope.current_unit_key,
             "base_content_hash": request.scope.base_unit_hash,
-            "replacement_markdown": value.get(
-                "replacement_markdown", value.get("markdown", "")
+            "replacement_markdown": ReviewableUnitRuntime._locked_markdown(
+                request.scope.current_unit_title,
+                value.get("replacement_markdown", value.get("markdown", "")),
             ),
             "claims": value.get("claims", []),
             "resolved_issue_ids": value.get("resolved_issue_ids", []),
             "preserved_unknown_ids": value.get("preserved_unknown_ids", []),
             "used_fact_ids": value.get("used_fact_ids", []),
         }
+
+    @staticmethod
+    def _schema_payload(
+        value: Mapping[str, object], expected_schema: str
+    ) -> Mapping[str, object]:
+        if value.get("schema_version") == expected_schema:
+            return value
+        nested = value.get("output_contract")
+        if isinstance(nested, Mapping) and nested.get("schema_version") == expected_schema:
+            return nested
+        return value
+
+    @staticmethod
+    def _locked_markdown(title: str, value: object) -> object:
+        if not isinstance(value, str) or not value.strip():
+            return value
+        headings = [
+            line.lstrip("#").strip()
+            for line in value.splitlines()
+            if line.startswith("#")
+        ]
+        if headings and headings[0] == title:
+            return value
+        return f"# {title}\n\n{value.lstrip()}"
 
     @staticmethod
     def _base_candidate(scope) -> UnitCandidate | None:
