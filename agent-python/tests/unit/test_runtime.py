@@ -253,6 +253,54 @@ def test_reviewable_runtime_normalizes_provider_unit_output_contract_envelope() 
     assert payload["markdown"].startswith("# 需求与验收\n\n## 目标")
 
 
+def test_reviewable_runtime_normalizes_provider_claim_content() -> None:
+    class ProviderClaimModel:
+        def complete(self, system_prompt: str, user_prompt: str) -> ModelResponse:
+            return ModelResponse(
+                output=json.dumps(
+                    {
+                        "schema_version": "unit-candidate.v1",
+                        "unit_key": "provider-unit",
+                        "title": "Provider title",
+                        "ordinal": 0,
+                        "node_keys": ["provider-node"],
+                        "markdown": "# Provider title\n\n## 验收标准\n\n- 流程通过。",
+                        "claims": [
+                            {
+                                "claim_id": "claim-0",
+                                "content": "流程必须通过。",
+                                "verification_criteria": "任务进入 REVIEWABLE。",
+                            }
+                        ],
+                        "claim_ids": ["claim-0"],
+                        "unknown_ids": [],
+                        "used_fact_ids": [],
+                    },
+                    ensure_ascii=False,
+                ),
+                token_usage={"total_tokens": 1},
+                model_id="provider-model",
+            )
+
+    result = LangGraphAgentLoop(
+        model=ProviderClaimModel(),
+        checkpoint_codec=CheckpointCodec(),
+        quality_policy=DraftQualityPolicy(),
+    )(_context(_scope_proto()))
+
+    assert result.run_output is not None
+    payload = json.loads(result.run_output.payload)
+    assert payload["claims"] == [
+        {
+            "unit_key": "requirements",
+            "claim_type": "PROPOSED_BEHAVIOR",
+            "criticality": "IMPORTANT",
+            "statement": "流程必须通过。",
+            "evidence_refs": [],
+        }
+    ]
+
+
 def test_scoped_v4_path_applies_context_policy_even_without_entering_state_graph() -> None:
     sink = BufferedRuntimeEventSink()
     base = _context(_scope_proto())

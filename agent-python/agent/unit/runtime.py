@@ -183,7 +183,17 @@ class ReviewableUnitRuntime:
                     "non-empty markdown string whose first heading is exact "
                     "unit_scope.current_unit_title"
                 ),
-                "claims": [],
+                "claims": [
+                    {
+                        "claim_type": (
+                            "USER_REQUIREMENT | CURRENT_STATE | CONSTRAINT | "
+                            "PROPOSED_BEHAVIOR | ACCEPTANCE_CRITERION | ASSUMPTION"
+                        ),
+                        "criticality": "BLOCKING | IMPORTANT | INFORMATIONAL",
+                        "statement": "non-empty claim text",
+                        "evidence_refs": ["supplied evidence reference"],
+                    }
+                ],
                 "claim_ids": [],
                 "unknown_ids": [],
                 "used_fact_ids": [],
@@ -311,7 +321,7 @@ class ReviewableUnitRuntime:
             "markdown": ReviewableUnitRuntime._locked_markdown(
                 request.scope.current_unit_title, value.get("markdown", "")
             ),
-            "claims": value.get("claims", []),
+            "claims": ReviewableUnitRuntime._claims(value.get("claims", [])),
             "claim_ids": value.get("claim_ids", []),
             "unknown_ids": value.get("unknown_ids", []),
             "used_fact_ids": value.get("used_fact_ids", []),
@@ -330,7 +340,7 @@ class ReviewableUnitRuntime:
                 request.scope.current_unit_title,
                 value.get("replacement_markdown", value.get("markdown", "")),
             ),
-            "claims": value.get("claims", []),
+            "claims": ReviewableUnitRuntime._claims(value.get("claims", [])),
             "resolved_issue_ids": value.get("resolved_issue_ids", []),
             "preserved_unknown_ids": value.get("preserved_unknown_ids", []),
             "used_fact_ids": value.get("used_fact_ids", []),
@@ -359,6 +369,23 @@ class ReviewableUnitRuntime:
         if headings and headings[0] == title:
             return value
         return f"# {title}\n\n{value.lstrip()}"
+
+    @staticmethod
+    def _claims(value: object) -> object:
+        if not isinstance(value, (list, tuple)):
+            return value
+        normalized: list[object] = []
+        for raw in value:
+            if not isinstance(raw, Mapping):
+                normalized.append(raw)
+                continue
+            claim = dict(raw)
+            if not str(claim.get("statement", "")).strip():
+                content = str(claim.get("content", "")).strip()
+                if content:
+                    claim["statement"] = content
+            normalized.append(claim)
+        return normalized
 
     @staticmethod
     def _base_candidate(scope) -> UnitCandidate | None:
